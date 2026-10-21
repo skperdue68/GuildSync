@@ -7,7 +7,6 @@ Thumbs.db
 # Logs / env
 *.log
 .env
-.env
 
 # Node
 NodeJS/GuildSync-Discord-Bot/data/
@@ -17,12 +16,39 @@ yarn-debug.log*
 yarn-error.log*
 
 # Wails / Go build output
-GO/GuildSyncClient-/build/bin/
-GO/GuildSync-Client/frontend/dist/
-GO/GuildSync-Client/frontend/wailsjs/
-GO/GuildSync-Client/frontend/node_modules/
+/GO/GuildSync-Frontend-Client/build/bin/
+/GO/GuildSync-Frontend-Client/release/
+/GO/GuildSync-Frontend-Client/frontend/dist/*
+!/GO/GuildSync-Frontend-Client/frontend/dist/.gitkeep
+/GO/GuildSync-Frontend-Client/frontend/wailsjs/
+/GO/GuildSync-Frontend-Client/frontend/package.json.md5
+/Installer/Linux/FyneInstaller/payload.tar.gz
 GO/Filewatcher/*.exe
 NodeJS/Guildsync-Server/data/
+
+# Compiled server web UI (public/downloads installers stay tracked)
+/NodeJS/GuildSync-Backend-Server/web/dist/
+/NodeJS/GuildSync-Backend-Server/public/index.html
+/NodeJS/GuildSync-Backend-Server/public/assets/
+/NodeJS/GuildSync-Backend-Server/data/
+/release/
+
+# Workspaces, caches, runtime credentials and local user state
+/.worktrees/
+__pycache__/
+*.pyc
+coverage/
+*.tsbuildinfo
+guildsync-service-account*.json
+*-service-account.json
+credentials.json
+*.pem
+*.key
+file-watch-settings.json
+voice-hotkey.json
+guildsync-session.json
+guildsync-client.json
+GuildSyncBackups/
 
 # Go
 *.exe

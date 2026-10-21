@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 test('the web bundle served by the backend includes raffle bonus configuration', () => {
+  if (!fs.existsSync(new URL('./public/index.html', import.meta.url))) {
+    throw new Error('Build the web client first: npm run build:web in NodeJS/GuildSync-Backend-Server. Compiled assets are intentionally untracked.');
+  }
   const read = path => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
   const html = read('./public/index.html');
   assert.equal(html, read('./web/dist/index.html'));
