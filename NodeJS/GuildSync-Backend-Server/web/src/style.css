@@ -6770,7 +6770,7 @@ body {
   min-height: 180px !important;
   max-height: none !important;
   overflow-y: auto !important;
-  overflow-x: hidden !important;
+  overflow-x: auto !important;
   border-radius: 12px;
   scrollbar-gutter: stable;
 }
@@ -6782,16 +6782,34 @@ body {
 }
 
 .banking-history-table {
-  table-layout: fixed;
+  /* Independent of Discord member column widths and mobile card rules. */
+  table-layout: auto;
   width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  color: #D9E2F4;
+  font-size: 14px;
 }
 
 .banking-history-table th,
 .banking-history-table td {
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   padding: 10px 12px;
   vertical-align: top;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.banking-history-table th {
+  min-width: 90px;
+  background: rgba(17, 34, 70, 0.96);
+  color: #DCE6F7;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.banking-history-table tbody tr:hover {
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .banking-history-date-column {
@@ -6800,9 +6818,12 @@ body {
 
 .banking-history-notes-column {
   width: 44%;
+  min-width: 240px;
 }
 
-.banking-history-note-cell {
+.banking-history-table .banking-history-note-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
   line-height: 1.35;
 }
 
