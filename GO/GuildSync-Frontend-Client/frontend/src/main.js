@@ -5580,7 +5580,7 @@ function renderBankingHistoryRecords() {
 
   return `
     <div class="roster-history-event-table-shell banking-history-table-shell">
-      <table class="discord-member-table roster-history-event-table banking-history-table">
+      <table class="banking-history-table">
         <thead>
           <tr>
             <th class="banking-history-date-column">Date / Time (Local)</th>
