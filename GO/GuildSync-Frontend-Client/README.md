@@ -10,6 +10,8 @@ The Wails desktop client authenticates through Discord, displays GuildSync data,
 
 Run `wails dev` here for desktop development with the Vite frontend. Run `wails build` for a desktop build. The frontend lives in `frontend`; install its locked dependencies with `npm ci` and build using `npm run build` as described in the release guide. Platform installers are prepared through the repository packaging/release workflow.
 
+Generated `frontend/dist`, `frontend/wailsjs`, `frontend/package.json.md5`, `build/bin`, and `release` files are not committed. The empty `frontend/dist/.gitkeep` lets Go's embed directive compile before the first build; `frontend/public/.gitkeep` preserves it when Vite recreates the output directory. On a fresh checkout use `wails dev` or `wails build` to regenerate the Go/JavaScript bindings and frontend output. A standalone frontend build needs the bindings first (`wails generate module` from this directory). Direct Go tests can use the placeholder, but runnable desktop applications require the real frontend build. Keep `build` icons, platform manifests and installer templates: those are source inputs, not compiled output.
+
 ## Local settings
 
 ### Voice Channel Mute (Windows)

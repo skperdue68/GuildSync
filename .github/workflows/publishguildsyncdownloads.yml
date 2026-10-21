@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   GO_VERSION: '1.23.x'
@@ -72,7 +73,7 @@ jobs:
           python3 release-source/tools/sync-release-downloads.test.py
           bash release-source/tools/upload-release-downloads.test.sh
           python3 release-source/tools/sync-release-downloads.py --source installers --destination downloads-repository/NodeJS/GuildSync-Backend-Server/public/downloads --version "$RELEASE_TAG"
-      - name: Commit download ZIPs and release versions to master
+      - name: Propose installer downloads and release versions in a pull request
         working-directory: downloads-repository
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
@@ -83,35 +84,51 @@ jobs:
           VERSION="${RELEASE_TAG#v}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          PROPOSED=false
+          BRANCH="codex/release-version-$VERSION"
           for attempt in 1 2 3; do
-            # This is an isolated Actions checkout. Regenerate on fresh master after a push race.
+            # Only replace our generated publication branch if it has not changed meanwhile.
+            REMOTE_HEAD="$(git ls-remote --heads origin "refs/heads/$BRANCH" | cut -f1)"
+            # Generated web files stay local; installer ZIPs remain tracked by design.
             git fetch origin master
             git reset --hard origin/master
             python3 ../release-source/tools/sync-release-downloads.py --source ../installers --destination NodeJS/GuildSync-Backend-Server/public/downloads --version "$RELEASE_TAG"
             LATEST_TAG="$(gh api --paginate --slurp "repos/$GH_REPO/releases" | python3 ../release-source/tools/latest-published-release.py)"
             if [[ "$LATEST_TAG" == "$RELEASE_TAG" ]]; then
               python3 ../release-source/tools/sync-release-web.py --bundle "../server-artifacts/GuildSync-Server-$VERSION.zip" --version "$VERSION"
-              git add -A -f -- NodeJS/GuildSync-Backend-Server/public/index.html NodeJS/GuildSync-Backend-Server/public/assets NodeJS/GuildSync-Backend-Server/web/dist/index.html NodeJS/GuildSync-Backend-Server/web/dist/assets
               go run ../release-source/tools/update-version.go "$VERSION"
               go run ../release-source/tools/update-version.go --check "$VERSION"
               git add -- "VERSION" "GO/GuildSync-Frontend-Client/frontend/src/main.js" "NodeJS/GuildSync-Backend-Server/web/src/main.js" "GO/GuildSync-Frontend-Client/wails.json" "ESO/GuildSyncApplications/GuildSyncApplications.lua" "Installer/Windows/GuildSyncInstaller.iss" "GO/GuildSync-Frontend-Client/frontend/package.json" "GO/GuildSync-Frontend-Client/frontend/package-lock.json" "NodeJS/GuildSync-Backend-Server/package.json" "NodeJS/GuildSync-Backend-Server/package-lock.json" "NodeJS/GuildSync-Backend-Server/web/package.json" "NodeJS/GuildSync-Backend-Server/web/package-lock.json" "NodeJS/GuildSync-Discord-Bot/package.json" "NodeJS/GuildSync-Discord-Bot/package-lock.json" "ESO/GuildSyncBanking/GuildSyncBanking.txt" "ESO/GuildSyncRoster/GuildSyncRoster.txt" "ESO/GuildSyncApplications/GuildSyncApplications.txt" "NodeJS/GuildSync-Backend-Server/.env.example"
             else
-              echo "A newer release exists ($LATEST_TAG); preserving source versions while adding these installers."
+              echo "A newer release exists ($LATEST_TAG); preserving source versions while adding installers."
             fi
             for platform in Windows macOS Linux-x86_64; do
               git add -- "NodeJS/GuildSync-Backend-Server/public/downloads/GuildSync-Setup-$VERSION-$platform.zip"
             done
             if git diff --cached --quiet; then
-              echo "Downloads and source versions already match this release."
+              echo "Installer downloads and source versions already match this release."
               exit 0
             fi
-            git commit -m "Publish GuildSync $VERSION downloads and version fields"
+            git commit -m "Publish GuildSync $VERSION downloads and source versions"
             CURRENT_LATEST="$(gh api --paginate --slurp "repos/$GH_REPO/releases" | python3 ../release-source/tools/latest-published-release.py)"
             if [[ "$LATEST_TAG" != "$CURRENT_LATEST" ]]; then continue; fi
-            if git push origin HEAD:master; then exit 0; fi
+            if git push --force-with-lease="refs/heads/$BRANCH:$REMOTE_HEAD" origin "HEAD:refs/heads/$BRANCH"; then
+              EXISTING_PR="$(gh pr list --state open --base master --head "$BRANCH" --json url --jq '.[0].url // empty')"
+              if [[ -z "$EXISTING_PR" ]]; then
+                gh pr create --base master --head "$BRANCH" \
+                  --title "Publish GuildSync $VERSION downloads and source versions" \
+                  --body "Publish installer ZIPs in public/downloads and update source version fields for the latest published release. Compiled web files remain deployment artifacts and are not committed."
+              else
+                echo "Version update already proposed: $EXISTING_PR"
+              fi
+              PROPOSED=true
+              break
+            fi
           done
-          echo "Could not update master. Check branch rules and Actions write permissions, or rerun after concurrent releases finish." >&2
-          exit 1
+          if [[ "$PROPOSED" != true ]]; then
+            echo "Could not publish the version branch. Check Actions write permissions." >&2
+            exit 1
+          fi
       - name: Upload ZIPs to running server
         if: vars.GUILDSYNC_DEPLOY_DOWNLOADS_ENABLED == 'true'
         env:
@@ -125,7 +142,7 @@ jobs:
         run: bash release-source/tools/upload-release-downloads.sh
       - name: Report server upload configuration
         if: vars.GUILDSYNC_DEPLOY_DOWNLOADS_ENABLED != 'true'
-        run: echo "::warning::Installer ZIPs were committed to GitHub. Server upload is disabled until GUILDSYNC_DEPLOY_DOWNLOADS_ENABLED=true and SSH settings are configured."
+        run: echo "::warning::Installers are available as GitHub Release assets and proposed in a repository pull request. Server upload is disabled until GUILDSYNC_DEPLOY_DOWNLOADS_ENABLED=true and SSH settings are configured. Rebuild or deploy the compiled web UI separately."
 
 
 

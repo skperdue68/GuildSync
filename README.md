@@ -12,7 +12,8 @@ GuildSync connects ESO guild deposits, roster/application activity, Discord memb
 - [Administrator Configuration: saved overrides and live settings](docs/GuildSync-Admin-Configuration.md)
 - [Google Apps Script archive setup and account migration](docs/google-apps-script-setup.md)
 - [Discord member onboarding setup](NodeJS/GuildSync-Discord-Bot/MEMBER-ONBOARDING.md)
-- [Automatic release downloads: GitHub folder and server upload setup](docs/GuildSync-Automatic-Downloads.md)
+- [Automatic release downloads: release assets and server upload setup](docs/GuildSync-Automatic-Downloads.md)
+- [Repository contents, generated files, and clean-checkout setup](docs/Repository-Contents.md)
 - [Release packaging and deployment](docs/GuildSync-1.2.7.md)
 
 Discord `/gsr` is the raffle administration alias; ESO `/gsr` is the roster add-on command. The guides distinguish both command lists and their permissions. Optional Google exports, automatic rollover, raffle announcements, and member onboarding require their own settings; the database remains the durable record.
@@ -28,6 +29,6 @@ Discord `/gsr` is the raffle administration alias; ESO `/gsr` is the roster add-
 | `scripts/google-apps-script` | Owner-authorized archive web app |
 | `Installer` | Platform packaging |
 
-Run `node --test` from the repository root for JavaScript tests. Startup/deployment commands and desktop builds are documented in the detailed help and release guide. Keep actual `.env` files, service-account JSON, and production secrets out of source control.
+Build the web client with `npm ci` followed by `npm run build:web` in `NodeJS/GuildSync-Backend-Server` before running the JavaScript suite (`node --test` from the repository root). Compiled frontend files and generated Wails bindings are intentionally untracked; published installer ZIPs in `public/downloads` stay tracked. Startup/deployment commands and desktop builds are documented in the detailed help and release guide. Keep actual `.env` files, service-account JSON, and production secrets out of source control.
 
 
