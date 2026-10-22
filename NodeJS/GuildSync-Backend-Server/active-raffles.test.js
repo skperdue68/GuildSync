@@ -63,6 +63,34 @@ test('empty raffles advertise zero prize gold and zero draws', async () => {
   assert.equal(result.raffles[0].prizeGold, 0);
   assert.equal(result.raffles[0].drawCount, 0);
   assert.equal(result.raffles[1].prizeGold, 0);
+  assert.ok(result.raffles.every(raffle => raffle.latestTransactionAt === null));
+});
+
+test('latest recorded transaction is calculated separately within each active raffle sales period', async () => {
+  const previousBiweeklyEnd = cutoff - 14 * 86400;
+  const entries = [
+    {type: 'biweekly', time: cutoff - 100, amount: 501, ticketAmount: 1},
+    {type: 'monthly', time: String(cutoff - 10), amount: 2503, ticketAmount: 1},
+    {type: 'biweekly', time: String(cutoff - 20), amount: 501, ticketAmount: 1},
+    {type: 'biweekly', time: previousBiweeklyEnd, amount: 501, ticketAmount: 1},
+    {type: 'biweekly', time: cutoff + 1, amount: 501, ticketAmount: 1},
+    {type: 'monthly', time: draw + 1, amount: 2503, ticketAmount: 1},
+    {type: 'other', time: cutoff, amount: 1000, ticketAmount: 0}
+  ];
+  const snapshot = await actions.getActiveRaffleSummary(db(entries), cutoff + 1);
+  assert.equal(snapshot.asOf, cutoff + 1);
+  assert.equal(snapshot.raffles[0].latestTransactionAt, cutoff - 20);
+  assert.equal(snapshot.raffles[1].latestTransactionAt, cutoff - 10);
+});
+
+test('latest transaction advances at draw rollover and excludes future and other-period deposits', async () => {
+  const snapshot = await actions.getActiveRaffleSummary(db(rows), draw);
+  assert.ok(snapshot.raffles.every(raffle => raffle.latestTransactionAt === cutoff + 100));
+  const futureOnly = await actions.getActiveRaffleSummary(db([
+    {type: 'biweekly', time: draw + 1, amount: 501, ticketAmount: 1},
+    {type: 'monthly', time: cutoff, amount: 2503, ticketAmount: 1}
+  ]), draw);
+  assert.ok(futureOnly.raffles.every(raffle => raffle.latestTransactionAt === null));
 });
 
 test('Sheets cutoff windows advance immediately after sales end while public draw remains pending', () => {

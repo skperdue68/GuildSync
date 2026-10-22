@@ -18,6 +18,11 @@ export function requestActiveRaffles(socket, options = {}) {
 }
 export function formatRaffles(snapshot, { includeTickets = false, verifyName = '' } = {}) {
   const number = value => Number(value || 0).toLocaleString('en-US');
+  const latestTransaction = raffle => raffle.latestTransactionAt === null
+    ? 'No transactions recorded for this raffle period.'
+    : Number.isSafeInteger(raffle.latestTransactionAt) && raffle.latestTransactionAt > 0
+      ? `Latest recorded transaction: <t:${raffle.latestTransactionAt}:f>.`
+      : 'Latest recorded transaction: unavailable.';
   const reminders = [...(snapshot.reminders || [])].sort((a, b) => a.at - b.at);
   const grouped = new Map();
   for (const reminder of reminders) {
@@ -34,11 +39,12 @@ export function formatRaffles(snapshot, { includeTickets = false, verifyName = '
       : `${number(reminder.percent)}% ticket bonus expires`;
     return `**${label} reminder:** ${event} at <t:${reminder.at}:F> (<t:${reminder.at}:R>).`;
   });
-  return [...reminderLines, `As of <t:${snapshot.asOf}:f>. Based on the latest banking data received by GuildSync.`, '**GuildSync active raffle prizes**', ...snapshot.raffles.map(raffle => [
+  return [...reminderLines, `As of <t:${snapshot.asOf}:f>. Based on the latest banking data received by GuildSync. Transaction times identify the latest entries recorded by GuildSync automation and may lag behind actual deposit data.`, '**GuildSync active raffle prizes**', ...snapshot.raffles.map(raffle => [
     `**${raffle.type === 'biweekly' ? 'Bi-Weekly' : '50/50'}: ${number(raffle.prizeGold)} gold available for the draw**`,
     ...(raffle.type === 'biweekly' ? [`${number(raffle.drawCount)} draws × 200,000 gold each (rounded up).`] : []),
     `Tickets: ${number(raffle.totalTickets)}${raffle.bonusEnabled ? ` (includes ${number(raffle.bonusTickets || 0)} bonus; ${number(raffle.bonusPercent || 0)}% bonus expires <t:${raffle.bonusExpiresAt}:R>${raffle.nextBonusPercent ? `, then ${number(raffle.nextBonusPercent)}% until <t:${raffle.nextBonusExpiresAt}:R>` : ''})` : ''} · Draw: <t:${raffle.drawTime}:F>`,
-    raffle.salesOpen ? `Ticket sales close <t:${raffle.salesEnd}:R>.` : 'Sales closed — awaiting the draw.'
+    raffle.salesOpen ? `Ticket sales close <t:${raffle.salesEnd}:R>.` : 'Sales closed — awaiting the draw.',
+    latestTransaction(raffle)
   ].join('\n')), ...(includeTickets ? [formatUserTickets(snapshot, verifyName)] : [])].join('\n\n');
 }
 
