@@ -45,6 +45,8 @@ The database is the durable source for banking records. The working spreadsheet 
 
 Use these in the configured Discord guild, not a DM. `option:value` is Discord slash-command option syntax. `/gsr` and `/gsraffle` have identical raffle subcommands. ESO uses a different `/gsr` command; see below.
 
+All raffle/ticket summaries and automatic raffle posts retain the current `As of` timestamp and include a separate latest recorded transaction timestamp for each active raffle. The backend derives `latestTransactionAt` from the maximum transaction event time among the same raffle-type/sales-period entries used for its totals, excluding future entries. Selection remains on the closing raffle until draw time, then advances normally. This is a transaction date, not the upload time, message time, or proof that ingestion is current. Messages warn that GuildSync automation may lag behind actual deposit data. No entries yields an explicit empty-period message; an older backend without the field displays “unavailable.” No new configuration or database migration is required; update/restart both backend and bot.
+
 | Command / options | Function | Access and visibility |
 | --- | --- | --- |
 | `/raffle` | Current Bi-Weekly and 50/50 summary: prize gold, ticket totals, draw/cutoff, current bonus and deadline. | Guild members subject to Discord command permissions; ephemeral by default. |

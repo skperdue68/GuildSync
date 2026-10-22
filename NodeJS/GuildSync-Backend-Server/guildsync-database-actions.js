@@ -2130,6 +2130,7 @@ export async function getActiveRaffleSummary(applicationDB, now = Math.floor(Dat
       salesStart: previousSalesEnd + 1, salesEnd,
       drawTime: salesEnd + BANKING_RAFFLE_AFTER_SALES_SECONDS,
       salesOpen: now < salesEnd, prizeGold,
+      latestTransactionAt: rows.reduce((latest, entry) => Math.max(latest, Number(entry.time)), 0) || null,
       ...(type === 'biweekly' ? { drawCount: prizeGold / 200000, goldPerDraw: 200000 } : {}),
       totalTickets: rows.reduce((sum, entry) => sum + (Number(entry.totalTickets) || 0), 0),
       bonusEnabled: bonus.enabled,

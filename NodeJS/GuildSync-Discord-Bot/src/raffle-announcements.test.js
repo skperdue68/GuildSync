@@ -6,6 +6,18 @@ import { formatRaffles } from './raffle.js';
 
 const snapshot = { asOf: 1000, raffles: [{ type: 'biweekly', prizeGold: 200000, drawCount: 1, totalTickets: 10, drawTime: 10000, salesEnd: 6400, salesOpen: true }] };
 const delivery = { id: 'saved-delivery', createdAt: 1000, reconcile: true };
+
+test('automatic channel announcements include the latest recorded transaction and deposit lag notice', async () => {
+  const f = fixture([]);
+  let posted;
+  f.channel.send = async message => { posted = message; };
+  await sendRaffleAnnouncement(f.client, 'channel', 'guild', {
+    ...snapshot, raffles: [{...snapshot.raffles[0], latestTransactionAt: 900}]
+  }, {...delivery, reconcile: false});
+  assert.match(posted.content, /As of <t:1000:f>/);
+  assert.match(posted.content, /Latest recorded transaction: <t:900:f>/);
+  assert.match(posted.content, /GuildSync automation[^]*?may lag behind actual deposit data/);
+});
 function fixture(messages) {
   let sends = 0;
   const channel = { guildId: 'guild', isTextBased: () => true, permissionsFor: () => ({ has: () => true }),

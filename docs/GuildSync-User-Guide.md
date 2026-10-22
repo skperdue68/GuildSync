@@ -26,10 +26,12 @@ Type these in your guild's Discord server. In the examples, text after a colon i
 
 | Command | What it does |
 | --- | --- |
-| `/raffle` | Privately shows the current Bi-Weekly and 50/50 raffles, prizes, tickets, draw times, and available early purchase bonus. |
+| `/raffle` | Privately shows the current Bi-Weekly and 50/50 raffles, prizes, tickets, draw times, available early purchase bonus, and latest recorded transaction time for each raffle period. |
 | `/raffle public:true` | Shows the raffle summary publicly in the channel. |
 | `/tickets` | Privately shows the raffle summary and your current ticket purchases for your linked ESO account. |
 | `/raffle tickets:true` | Does the same ticket lookup as `/tickets`. |
+
+Raffle summaries, ticket lookups and automatic channel announcements show both the current **As of** time and the **Latest recorded transaction** for each raffle period. These transaction dates describe the latest entries recorded by GuildSync automation, which may lag behind actual deposits; they do not confirm that all ESO deposits have been uploaded. Empty periods say no transactions are recorded. Discord displays the dates and times in your local timezone.
 
 Ticket details are private even if you also choose `public:true`. Bi-Weekly and 50/50 purchases appear separately. When a purchase earned a bonus, its percentage appears with bonus and total tickets.
 

@@ -1,6 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+test('raffle and ticket messages distinguish current time from each raffle latest transaction and warn of lag', async () => {
+  const {formatRaffles} = await import('./raffle.js');
+  const snapshot = {asOf: 1781996401, raffles: [
+    {type: 'biweekly', prizeGold: 200000, drawCount: 1, totalTickets: 4, latestTransactionAt: 1781996000},
+    {type: 'monthly', prizeGold: 100000, totalTickets: 8, latestTransactionAt: 1781996100}
+  ], tickets: {linked: true, esoAccountName: 'Example', purchases: [
+    {raffleType: 'biweekly', raffleLabel: 'Bi-weekly', time: 1781995000, purchasedTickets: 4, totalTickets: 4}
+  ]}};
+  for (const options of [{}, {includeTickets: true}, {includeTickets: true, verifyName: 'Example'}]) {
+    const content = formatRaffles(snapshot, options);
+    assert.match(content, /As of <t:1781996401:f>/);
+    assert.match(content, /Bi-Weekly:[^]*?Latest recorded transaction: <t:1781996000:f>/);
+    assert.match(content, /50\/50:[^]*?Latest recorded transaction: <t:1781996100:f>/);
+    assert.match(content, /GuildSync automation[^]*?may lag behind actual deposit data/);
+  }
+});
+
+test('empty raffle periods and unavailable older backend timestamps are identified explicitly', async () => {
+  const {formatRaffles} = await import('./raffle.js');
+  for (const value of [undefined, NaN, 0, 'not-a-date']) {
+    const content = formatRaffles({asOf: 100, raffles: [{type: 'biweekly', latestTransactionAt: value}]});
+    assert.match(content, /Latest recorded transaction: unavailable/);
+  }
+  const empty = formatRaffles({asOf: 100, raffles: [{type: 'biweekly', latestTransactionAt: null}]});
+  assert.match(empty, /No transactions recorded for this raffle period/);
+  assert.doesNotMatch(empty, /<t:null:/);
+});
+
 test('raffle messages advertise prize gold and biweekly draw count, not deposits', async () => {
   const { formatRaffles } = await import('./raffle.js');
   const content = formatRaffles({ asOf: 1781996401, raffles: [
