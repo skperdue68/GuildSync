@@ -3532,6 +3532,7 @@ export async function getDiscordRankAuditReport(applicationDB) {
               WHEN LOWER(TRIM(roles.role_name)) = 'capo' THEN 3
               WHEN LOWER(TRIM(roles.role_name)) = 'soldiers' THEN 4
               WHEN LOWER(TRIM(roles.role_name)) = 'associates' THEN 5
+              WHEN LOWER(TRIM(roles.role_name)) IN ('gangster', 'gangsters') THEN 6
               ELSE 999
             END AS rank_order
           FROM discord_member_roles member_roles
@@ -3543,7 +3544,9 @@ export async function getDiscordRankAuditReport(applicationDB) {
             'caporegime',
             'capo',
             'soldiers',
-            'associates'
+            'associates',
+            'gangster',
+            'gangsters'
           )
         ) ranked
         GROUP BY ranked.discord_id
@@ -3569,6 +3572,7 @@ export async function getDiscordRankAuditReport(applicationDB) {
               WHEN LOWER(TRIM(roster.rank_name)) = 'capo' THEN 3
               WHEN LOWER(TRIM(roster.rank_name)) = 'soldier' THEN 4
               WHEN LOWER(TRIM(roster.rank_name)) = 'associate' THEN 5
+              WHEN LOWER(TRIM(roster.rank_name)) IN ('gangster', 'gangsters') THEN 6
               ELSE 999
             END
           ) AS highest_eso_rank_order,
@@ -3581,6 +3585,7 @@ export async function getDiscordRankAuditReport(applicationDB) {
                 WHEN LOWER(TRIM(roster.rank_name)) = 'capo' THEN 'Capo'
                 WHEN LOWER(TRIM(roster.rank_name)) = 'soldier' THEN 'Soldier'
                 WHEN LOWER(TRIM(roster.rank_name)) = 'associate' THEN 'Associate'
+                WHEN LOWER(TRIM(roster.rank_name)) IN ('gangster', 'gangsters') THEN 'Gangster'
                 ELSE roster.rank_name
               END
               ORDER BY
@@ -3590,6 +3595,7 @@ export async function getDiscordRankAuditReport(applicationDB) {
                   WHEN LOWER(TRIM(roster.rank_name)) = 'capo' THEN 3
                   WHEN LOWER(TRIM(roster.rank_name)) = 'soldier' THEN 4
                   WHEN LOWER(TRIM(roster.rank_name)) = 'associate' THEN 5
+                  WHEN LOWER(TRIM(roster.rank_name)) IN ('gangster', 'gangsters') THEN 6
                   ELSE 999
                 END ASC
               SEPARATOR '||'

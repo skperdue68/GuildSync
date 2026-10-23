@@ -1510,11 +1510,12 @@ function renderRosterSortableHeader(column, label, extraClass = '') {
 }
 
 function getAllRosterRankNames() {
-  return Array.from(new Set(
-    rosterMembers
+  return Array.from(new Set([
+    'Gangster',
+    ...rosterMembers
       .map((member) => String(member.rank || '').trim())
       .filter(Boolean)
-  )).sort((left, right) => left.localeCompare(right));
+  ])).sort((left, right) => left.localeCompare(right));
 }
 
 function renderRosterRankFilterChip(rankName) {
@@ -8499,7 +8500,8 @@ function restoreRosterSearchFocus() {
 }
 
 function getAllDiscordRoleNames() {
-  const roleNames = new Set();
+  // Include synced roles even before any member has been assigned to them.
+  const roleNames = new Set(discordRoles.map(role => role.role_name).filter(Boolean));
 
   for (const member of discordMembers) {
     for (const role of member.roles) {
