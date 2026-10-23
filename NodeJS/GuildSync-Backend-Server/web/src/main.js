@@ -1518,7 +1518,7 @@ function getAllRosterRankNames() {
 }
 
 function renderRosterRankFilterChip(rankName) {
-  const role = findRoleByName(rankName);
+  const role = findRoleByRosterRankName(rankName);
   const hexColor = discordRoleColorToHex(role?.role_color);
   const textColor = getReadableTextColor(hexColor);
   const roleStyle = buildFilledRoleStyle(hexColor, textColor);
@@ -7331,6 +7331,12 @@ function updateLiveDataView(selector, markup, banking = false, roster = false) {
   }
   if (!banking) {
     syncDataText(panel.querySelector('.discord-results-count'), next.querySelector('.discord-results-count'));
+    const chipAttribute = roster ? 'data-remove-roster-rank-filter' : 'data-remove-role-filter';
+    for (const chip of panel.querySelectorAll(`[${chipAttribute}]`)) {
+      const wantedChip = Array.from(next.querySelectorAll(`[${chipAttribute}]`))
+        .find(candidate => candidate.getAttribute(chipAttribute) === chip.getAttribute(chipAttribute));
+      if (wantedChip) chip.setAttribute('style', wantedChip.getAttribute('style') || '');
+    }
     const filterSelector = roster ? '#rosterRankFilter' : '#discordRoleFilter';
     const select = panel.querySelector(filterSelector), wanted = next.querySelector(filterSelector);
     if (select && wanted && select.innerHTML !== wanted.innerHTML) {
@@ -8182,9 +8188,8 @@ async function handleDiscordMemberDataUpdated(payload = {}) {
     // The member data is still valid even if the date follow-up request fails.
   }
 
-  if (activeGuildSyncTab === 'discord-members') {
-    updateDiscordDataView();
-  }
+  updateDiscordDataView();
+  updateRosterDataView();
 
   addSystemMessage('discord-data-updated', `Discord data updated. Loaded ${discordMembers.length} member record${discordMembers.length === 1 ? '' : 's'}.`, {
     ttlMs: TRANSIENT_MESSAGE_TTL_MS
@@ -8234,6 +8239,7 @@ async function refreshDiscordData(options = {}) {
   } finally {
     discordDataLoading = false;
     updateDiscordDataView();
+    updateRosterDataView();
     refreshPendingTabData('discord-members');
   }
 }
@@ -8327,7 +8333,8 @@ function normalizeDiscordRole(role) {
   return {
     role_id: roleID,
     role_name: roleName || 'Unnamed Role',
-    role_color: roleColor
+    role_color: roleColor,
+    role_position: Number(role.role_position ?? role.position ?? 0) || 0
   };
 }
 
@@ -8505,13 +8512,32 @@ function getAllDiscordRoleNames() {
   return Array.from(roleNames).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
+function getDiscordMemberColor(member) {
+  // Resolve fresh role records so color and hierarchy edits apply to member snapshots.
+  const roles = (member.roles || [])
+    .map(role => discordRoles.find(current => current.role_id && current.role_id === role.role_id) || role)
+    .filter(role => Number(role.role_color) > 0)
+    .sort((left, right) => {
+      const difference = (Number(right.role_position) || 0) - (Number(left.role_position) || 0);
+      if (difference) return difference;
+      // Discord gives the lower snowflake precedence at equal positions.
+      if (/^\d+$/.test(left.role_id) && /^\d+$/.test(right.role_id)) {
+        const a = BigInt(left.role_id), b = BigInt(right.role_id);
+        return a < b ? -1 : a > b ? 1 : 0;
+      }
+      return 0;
+    });
+  return discordRoleColorToHex(roles[0]?.role_color);
+}
+
 function renderDiscordMemberRow(member) {
   const avatarURL = getDiscordMemberAvatarURL(member);
   const displayName = getMemberSortName(member);
-  const roles = member.roles || [];
+  const roles = (member.roles || []).map(role => discordRoles.find(current => current.role_id && current.role_id === role.role_id) || role);
+  const rowColor = getDiscordMemberColor(member);
 
   return `
-    <tr data-discord-user-id="${escapeAttribute(member.discord_id || '')}">
+    <tr style="color: ${rowColor};" data-discord-user-id="${escapeAttribute(member.discord_id || '')}">
       <td>
         <div class="discord-member-cell">
           <div class="discord-member-avatar">
@@ -8608,9 +8634,12 @@ function getDiscordRoleNamesForRosterRank(rankName) {
     associates: ['Associates', 'Associate'],
     soldier: ['Soldiers', 'Soldier'],
     soldiers: ['Soldiers', 'Soldier'],
-    capo: ['Capo'],
+    capo: ['Capo', 'Capos'],
     capos: ['Capo', 'Capos'],
-    caporegime: ['CapoRegime', 'Capo Regime', 'Capo Regimes'],
+    gangster: ['Gangsters', 'Gangster'],
+    gangsters: ['Gangsters', 'Gangster'],
+    caporegime: ['CapoRegime', 'Capo Regime', 'Capo Regimes', 'Caporegimes'],
+    caporegimes: ['Caporegimes', 'CapoRegime', 'Capo Regime', 'Capo Regimes'],
     consiglieres: ['Consigliere', 'Consiglieres'],
     consigliere: ['Consigliere', 'Consiglieres']
   };

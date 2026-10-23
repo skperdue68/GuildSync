@@ -31,6 +31,7 @@ local gsbBankingSavedVars = nil
 local gsbLibHistoire = nil
 local gsbProcessor = nil
 local gsbInitialized = false
+local gsbStreamGeneration = 0
 local gsbMailQueueProcessing = false
 
 local function GSB_Print(message)
@@ -64,16 +65,19 @@ local function GSB_Trim(value)
 end
 
 local function GSB_GetTargetGuildId()
+  local selectedId = gsbSavedVars and gsbSavedVars.targetGuildId
+  local selectedName = gsbSavedVars and gsbSavedVars.targetGuildName or TARGET_GUILD_NAME
   for guildIndex = 1, GetNumGuilds() do
     local guildId = GetGuildId(guildIndex)
     local guildName = GetGuildName(guildId)
 
-    if string.lower(GSB_Trim(guildName)) == string.lower(TARGET_GUILD_NAME) then
+    if (selectedId and tostring(guildId) == tostring(selectedId))
+      or (not selectedId and string.lower(GSB_Trim(guildName)) == string.lower(selectedName)) then
       return guildId, guildIndex, guildName
     end
   end
 
-  GSB_Print("Could not find guild named: " .. TARGET_GUILD_NAME)
+  GSB_Print("Could not find selected guild: " .. tostring(selectedId or selectedName))
   return nil, nil, nil
 end
 
@@ -98,6 +102,37 @@ local function GSB_EnsureSavedVars()
   end
 
   return gsbSavedVars
+end
+
+-- Never apply a singleton checkpoint from an unidentified guild to another guild.
+local function GSB_GuildCheckpoint(guildId)
+  local sv = GSB_EnsureSavedVars()
+  local key = tostring(guildId)
+  sv.lastProcessedIdsByGuild = sv.lastProcessedIdsByGuild or {}
+  if not sv.guildCheckpointMigrationComplete then
+    if sv.lastProcessedId ~= nil then
+      if tostring(sv.lastProcessedGuildId or "") == key then
+        sv.lastProcessedIdsByGuild[key] = sv.lastProcessedIdsByGuild[key] or tonumber(sv.lastProcessedId)
+      else
+        sv.unboundLegacyLastProcessedId = sv.lastProcessedId
+        GSB_Print("Legacy checkpoint has no matching guild identity; replaying available cached history safely.")
+      end
+    end
+    sv.guildCheckpointMigrationComplete = true
+  end
+  sv.lastProcessedGuildId = key
+  sv.lastProcessedId = tonumber(sv.lastProcessedIdsByGuild[key])
+  return sv.lastProcessedId
+end
+
+local function GSB_AdvanceGuildCheckpoint(guildId, eventId)
+  local sv = GSB_EnsureSavedVars()
+  local previous = GSB_GuildCheckpoint(guildId)
+  eventId = tonumber(eventId)
+  if eventId and (not previous or eventId > previous) then
+    sv.lastProcessedIdsByGuild[tostring(guildId)] = eventId
+    sv.lastProcessedId = eventId
+  end
 end
 
 local function GSB_IsDebugEnabled()
@@ -336,7 +371,7 @@ local function GSB_ProcessMailQueue()
   end, MAILBOX_OPEN_DELAY_MS)
 end
 
-local function GSB_BankingEventAlreadySavedAnywhere(eventId)
+local function GSB_BankingEventAlreadySavedAnywhere(eventId, guildId)
   local bankingSv = GSB_EnsureBankingSavedVars()
 
   if not bankingSv then
@@ -359,7 +394,7 @@ local function GSB_BankingEventAlreadySavedAnywhere(eventId)
     local list = bankingSv[sectionName] or {}
 
     for _, entry in ipairs(list) do
-      if tonumber(entry.eventId) == eventId then
+      if tonumber(entry.eventId) == eventId and (entry.guildId == nil or tostring(entry.guildId) == tostring(guildId)) then
         return true
       end
     end
@@ -420,12 +455,14 @@ local function GSB_SaveBankingEntry(kind, entry)
     return false
   end
 
-  if GSB_BankingEventAlreadySavedAnywhere(eventId) then
+  if GSB_BankingEventAlreadySavedAnywhere(eventId, entry.guildId) then
     return false
   end
 
   local savedEntry = {
     eventId = eventId,
+    guildId = entry.guildId,
+    guildName = entry.guildName,
     time = tonumber(entry.time),
     displayName = tostring(entry.displayName or ""),
     amount = tonumber(entry.amount) or 0,
@@ -433,6 +470,8 @@ local function GSB_SaveBankingEntry(kind, entry)
   }
 
   table.insert(bankingSv[kind], savedEntry)
+  bankingSv.guildId = entry.guildId
+  bankingSv.guildName = entry.guildName
 
   return true
 end
@@ -499,7 +538,7 @@ local function GSB_PrintBankEntry(source, kind, entry)
   GSB_Print(line)
 end
 
-local function GSB_ProcessBankEvent(event, shouldSave)
+local function GSB_ProcessBankEvent(event, shouldSave, guildId, guildName)
   if not GSB_EventPassesBankFilter(event) then
     return
   end
@@ -515,6 +554,8 @@ local function GSB_ProcessBankEvent(event, shouldSave)
   end
 
   if shouldSave then
+    entry.guildId = tostring(guildId)
+    entry.guildName = guildName
     local saved = GSB_SaveBankingEntry(kind, entry)
 
     if saved then
@@ -554,17 +595,20 @@ local function GSB_CreateProcessor()
 
   GSB_Debug("Processor key: " .. tostring(processor:GetKey()))
 
-  return processor
+  return processor, guildId, guildName
 end
 
 local function GSB_StopStream()
+  gsbStreamGeneration = gsbStreamGeneration + 1
   if not gsbProcessor then
-    return false
+    return true
   end
 
-  if gsbProcessor.Stop then
-    gsbProcessor:Stop()
+  if not gsbProcessor.Stop then
+    GSB_Print("Bank processor does not expose Stop().")
+    return false
   end
+  gsbProcessor:Stop()
 
   gsbProcessor = nil
   return true
@@ -576,7 +620,7 @@ local function GSB_DumpBankHistory()
     return
   end
 
-  local processor = GSB_CreateProcessor()
+  local processor, guildId, guildName = GSB_CreateProcessor()
 
   if not processor then
     return
@@ -630,7 +674,7 @@ local function GSB_StartStream()
     return
   end
 
-  local processor = GSB_CreateProcessor()
+  local processor, guildId, guildName = GSB_CreateProcessor()
 
   if not processor then
     return
@@ -641,7 +685,10 @@ local function GSB_StartStream()
     return
   end
 
-  local lastProcessedId = sv.lastProcessedId
+  local lastProcessedId = GSB_GuildCheckpoint(guildId)
+  gsbStreamGeneration = gsbStreamGeneration + 1
+  local generation = gsbStreamGeneration
+  gsbProcessor = processor
 
   if lastProcessedId ~= nil then
     lastProcessedId = tonumber(lastProcessedId)
@@ -660,16 +707,19 @@ local function GSB_StartStream()
   end
 
   local started = processor:StartStreaming(lastProcessedId, function(event)
+    if generation ~= gsbStreamGeneration or gsbProcessor ~= processor then return end
     local eventId = tonumber(event:GetEventId())
 
     if eventId then
-      sv.lastProcessedId = eventId
+      GSB_AdvanceGuildCheckpoint(guildId, eventId)
     end
 
-    GSB_ProcessBankEvent(event, true)
+    GSB_ProcessBankEvent(event, true, guildId, guildName)
   end)
 
   if not started then
+    gsbProcessor = nil
+    gsbStreamGeneration = gsbStreamGeneration + 1
     GSB_Print("Bank stream could not be started. It may already be running.")
     return
   end
@@ -680,13 +730,17 @@ local function GSB_StartStream()
 end
 
 local function GSB_ResetStream()
+  local guildId = GSB_GetTargetGuildId()
+  if not guildId then return end
   GSB_Print("Reset requested. Stopping stream, clearing LastProcessedId, and starting again from the beginning.")
 
-  GSB_StopStream()
+  if not GSB_StopStream() then return end
 
   local sv = GSB_EnsureSavedVars()
 
   if sv then
+    GSB_GuildCheckpoint(guildId)
+    sv.lastProcessedIdsByGuild[tostring(guildId)] = nil
     sv.lastProcessedId = nil
   end
 
@@ -694,6 +748,11 @@ local function GSB_ResetStream()
 end
 
 local function GSB_Status()
+  local guildId, _, guildName = GSB_GetTargetGuildId()
+  if guildId then
+    GSB_GuildCheckpoint(guildId)
+    GSB_Print("Guild: " .. tostring(guildName) .. " / ESO guild ID: " .. tostring(guildId))
+  end
   local sv = GSB_EnsureSavedVars()
   local lastProcessedId = sv and sv.lastProcessedId or nil
 
@@ -724,6 +783,30 @@ local function GSB_SetDebug(value)
   end
 end
 
+local function GSB_SelectGuild(query)
+  query = string.lower(GSB_Trim(query))
+  if query == "" then GSB_Status(); GSB_Print("Usage: /gsb guild <guild name or ESO guild ID>"); return end
+  local state, banking = GSB_EnsureSavedVars(), GSB_EnsureBankingSavedVars()
+  for index = 1, GetNumGuilds() do
+    local id = GetGuildId(index)
+    local name = GetGuildName(id)
+    if query == tostring(id) or query == string.lower(GSB_Trim(name)) then
+      if next(banking.biweekly) or next(banking.monthly) or next(banking.other)
+        or next(banking.mailQueue) or next(banking.mailAck) then
+        GSB_Print("Upload pending deposits and finish queued receipt acknowledgements before changing guilds. Nothing was changed.")
+        return
+      end
+      if not GSB_StopStream() then return end
+      state.targetGuildId, state.targetGuildName = tostring(id), name
+      banking.guildId, banking.guildName = tostring(id), name
+      GSB_Print("Selected guild " .. name .. " / ESO guild ID: " .. tostring(id))
+      GSB_StartStream()
+      return
+    end
+  end
+  GSB_Print("No joined guild matches that name or ESO guild ID. Nothing was changed.")
+end
+
 local function GSB_PrintHelp()
   GSB_Print("Commands:")
   GSB_Print("/gsb dump - Review all cached banking deposits. Does not save or update LastProcessedId.")
@@ -731,6 +814,7 @@ local function GSB_PrintHelp()
   GSB_Print("/gsb stop - Stop the active banking stream.")
   GSB_Print("/gsb reset - Stop stream, clear LastProcessedId, and start stream from the beginning.")
   GSB_Print("/gsb status - Show stream status and LastProcessedId.")
+  GSB_Print("/gsb guild <name or ESO guild ID> - Select the guild after pending deposits and mail acknowledgements are uploaded.")
   GSB_Print("/gsb debug on - Enable detailed banking event chat output.")
   GSB_Print("/gsb debug off - Disable detailed banking event chat output.")
 end
@@ -772,6 +856,8 @@ local function GSB_HandleCommand(args)
     GSB_Status()
     return
   end
+
+  if command == "guild" then GSB_SelectGuild(rest); return end
 
   if command == "debug" then
     if rest == "on" then

@@ -1,4 +1,6 @@
 import {initializeVoiceIdentitySchema,createVoiceIdentityService,registerVoiceIdentityRoutes,registerVoiceOnlyConnection,authorizeVoiceRequester,authenticateVoiceSocket} from './voice-auth.js';
+import {esoGuildConfiguration, initializeEsoGuildIdentity, validateEsoGuildImport} from './eso-guild-origin.js';
+import {registerDiscordGuildOrigin} from './discord-guild-origin.js';
 import {createUserAdministration,registerUserAdministrationSocket} from './user-administration.js';
 import {canIngestGuildSyncRole} from './role-permissions.js';
 import {registerRolePermissions} from './role-permissions-socket.js';
@@ -105,7 +107,8 @@ const WEB_DIST_DIR = process.env.GUILDSYNC_WEB_DIST_DIR || path.join(__dirname, 
 const GUILDSYNC_DOWNLOADS_DIR = process.env.GUILDSYNC_DOWNLOADS_DIR || path.join(__dirname, 'public', 'downloads');
 
 const GUILDSYNC_BOT_SOCKET_KEY = requiredEnv('GUILDSYNC_BOT_SOCKET_KEY');
-const GUILDSYNC_APPLICATIONS_GUILD_ID = String(process.env.GUILDSYNC_APPLICATIONS_GUILD_ID || '761817').trim();
+const ESO_GUILD_CONFIGURATION = esoGuildConfiguration();
+const GUILDSYNC_APPLICATIONS_GUILD_ID = String(ESO_GUILD_CONFIGURATION.guildId || process.env.GUILDSYNC_APPLICATIONS_GUILD_ID || '761817').trim();
 
 const CURRENT_GUILDSYNC_CLIENT_VERSION = readReleaseVersion();
 let loginDB;
@@ -119,6 +122,8 @@ try {
 await initializeVoiceIdentitySchema(loginDB);
 voiceIdentityService=createVoiceIdentityService(loginDB,{secret:GUILDSYNC_JWT_SECRET});
   applicationDB = await openAppDataDB();
+  await initializeEsoGuildIdentity(applicationDB);
+  Log(ESO_GUILD_CONFIGURATION.strict ? `ESO imports restricted to guild ${ESO_GUILD_CONFIGURATION.guildId}.` : 'ESO guild isolation: legacy mode; set GUILDSYNC_ESO_GUILD_ID after updating add-ons to enforce guild identity.');
   configurationService = createConfigurationService(applicationDB,{applyAtBoundary:fn=>sheetsRuntime?sheetsRuntime.applyConfiguration(fn):fn()});
   await configurationService.initialize();
   sheetsRuntime = startSheetsRollover(applicationDB, getSheetsRaffleWindows, {
@@ -358,6 +363,7 @@ app.post('/api/guildsync/upload-savedvars/:kind', requireGuildSyncWebUser, async
 
     if (kind === 'banking') {
       const data = parseGuildSyncBankingSavedVarsLua(rawLuaText);
+      validateEsoGuildImport('banking', data);
       const result = await insertBankingEntries(applicationDB, {
         source: data.table_name || 'GuildSyncBanking',
         uploadedBy: req.guildSyncUser.display_name || req.guildSyncUser.username || req.guildSyncUser.sub,
@@ -529,6 +535,7 @@ function registerVoiceForSocket(socket){
 }
 io.on('connection', (socket) => {
   if(registerVoiceOnlyConnection(socket,registerVoiceForSocket))return;
+  registerDiscordGuildOrigin(socket, Log);
   registerRolePermissions(socket,loginDB,roleViews);
   registerRoleViewSocket(socket,roleViews,async()=>{
     let profile;
@@ -616,6 +623,7 @@ io.on('connection', (socket) => {
 
       if (fileName === 'GuildSyncBanking.lua') {
         const data = parseGuildSyncBankingSavedVarsLua(rawLuaText);
+        validateEsoGuildImport('banking', data);
         const result = await insertBankingEntries(applicationDB, {
           source: data.table_name || 'GuildSyncBanking',
           uploadedBy: socket.guildSyncUser.display_name || socket.guildSyncUser.username || socket.guildSyncUser.discord_user_id,
@@ -659,6 +667,7 @@ io.on('connection', (socket) => {
           records: data.records || []
         });
 
+        validateEsoGuildImport('applications', {records: incomingRecords});
         const recordsForGuild = incomingRecords.filter(record => {
           const guildID = String(record.guildId || record.guild_id || '').trim();
           return guildID === GUILDSYNC_APPLICATIONS_GUILD_ID;
@@ -815,6 +824,7 @@ io.on('connection', (socket) => {
         `ESO guild application payload received from ${source}${fileName ? ` for ${fileName}` : ''}${recordKey ? ` record ${recordKey}` : ''}. Records: ${incomingRecords.length}.`
       );
 
+      validateEsoGuildImport('applications', {records: incomingRecords});
       const recordsForGuild = incomingRecords.filter(record => {
         const guildID = String(record.guildId || record.guild_id || '').trim();
         return guildID === GUILDSYNC_APPLICATIONS_GUILD_ID;
@@ -1284,6 +1294,7 @@ io.on('connection', (socket) => {
     }
 
     try {
+      validateEsoGuildImport('banking', payload);
       const authenticatedUsername = String(
         socket.guildSyncUser.display_name ||
         socket.guildSyncUser.guild_member_name ||
@@ -1338,7 +1349,7 @@ io.on('connection', (socket) => {
 
       const response = {
         ok: false,
-        message: 'Banking data processing failed.',
+        message: error.code === 'ESO_GUILD_ORIGIN' ? error.message : 'Banking data processing failed.',
         error: error.message,
         at: new Date().toLocaleString()
       };
@@ -1411,7 +1422,7 @@ io.on('connection', (socket) => {
 
       const response = {
         ok: false,
-        message: 'Roster data processing failed.',
+        message: error.code === 'ESO_GUILD_ORIGIN' ? error.message : 'Roster data processing failed.',
         error: error.message,
         at: new Date().toLocaleString()
       };

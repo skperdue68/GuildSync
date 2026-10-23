@@ -462,3 +462,8 @@ Discord and banking broadcasts, background availability polls, and refresh reque
 Clicking Discord, Guild Roster, or Banking fetches a complete current dataset for that tab, including when you click the tab already open. Discord joins and departures update member rows automatically; ESO guild membership changes update roster rows after GuildSyncRoster sends them to the backend. Background membership updates preserve scrolling and open dialogs. Changes to raffle bonus settings refresh the affected banking ticket values, bonus columns, totals, and exports; an open bonus editor refreshes saved settings while preserving unsaved edits.
 
 Administrator Configuration groups overrides by function and divides onboarding and raffle announcements into smaller labeled sections. Each setting has its own card with an explanation, its `.env` key, its current selection and Default/Overridden status, and its default controls. Hovering is not required to read help. Two-choice settings mark the default option; other settings show the default value and a Return to default button. Save Configuration applies your edits.
+
+
+## Guild selection and replay
+
+See [Guild identity, replay, and Discord colors](GuildSync-Guild-Isolation.md) for ESO `/gsr reset`, guild selection commands, and per-guild server configuration.

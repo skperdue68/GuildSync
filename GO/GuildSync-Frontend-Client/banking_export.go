@@ -147,6 +147,8 @@ func (a *App) CollectGuildSyncBankingData(event GuildSyncSavedVarsFileModifiedEv
 	baseResult.Data = map[string]interface{}{
 		"table_name":    extracted.tableName,
 		"account_name":  accountName,
+		"guildId":       accountWide["guildId"],
+		"guildName":     accountWide["guildName"],
 		"entries":       exportedEntries,
 		"entries_count": len(exportedEntries),
 		"section_counts": map[string]interface{}{

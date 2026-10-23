@@ -32,3 +32,5 @@ Discord `/gsr` is the raffle administration alias; ESO `/gsr` is the roster add-
 Build the web client with `npm ci` followed by `npm run build:web` in `NodeJS/GuildSync-Backend-Server` before running the JavaScript suite (`node --test` from the repository root). Compiled frontend files and generated Wails bindings are intentionally untracked; published installer ZIPs in `public/downloads` stay tracked. Startup/deployment commands and desktop builds are documented in the detailed help and release guide. Keep actual `.env` files, service-account JSON, and production secrets out of source control.
 
 
+
+See [guild identity, replay, and Discord colors](docs/GuildSync-Guild-Isolation.md) for multiple-guild setup and ESO replay commands.

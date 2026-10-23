@@ -1562,18 +1562,20 @@ local function IsAccountMemberInGuild(guildId, accountName)
 end
 
 function GSA:PopulateOfficerWelcomeMessage(applicantAccount)
-  local guildIndex, guildId = GetGuildIndexByName(WELCOME_GUILD_NAME)
+  local captureGuildId = GSA.saved and GSA.saved.settings and GSA.saved.settings.captureGuildId
+  local welcomeGuildName = captureGuildId and GetGuildName(tonumber(captureGuildId)) or WELCOME_GUILD_NAME
+  local guildIndex, guildId = GetGuildIndexByName(welcomeGuildName)
 
   if not guildIndex or not guildId then
     Chat("|cffff66GuildSyncApplications:|r could not find guild " ..
-      WELCOME_GUILD_NAME .. " for officer welcome message.")
+      welcomeGuildName .. " for officer welcome message.")
     return false
   end
 
   if not IsAccountOnlineInGuild(guildId, applicantAccount) then
     Chat("|cffff66GuildSyncApplications:|r " ..
       SafeText(applicantAccount) ..
-      " is not showing online in " .. WELCOME_GUILD_NAME .. ". Officer message was not queued.")
+      " is not showing online in " .. welcomeGuildName .. ". Officer message was not queued.")
     return false
   end
 
@@ -1679,6 +1681,8 @@ function GSA:RemoveApplicationRecord(applicantKey)
 end
 
 function GSA:SaveApplicationDecision(action, guildId, index, declineMessage, blacklistApplicant, blacklistMessage)
+  local captureGuildId = self.saved and self.saved.settings and self.saved.settings.captureGuildId
+  if captureGuildId and tostring(guildId) ~= tostring(captureGuildId) then return end
   self.saved.records = self.saved.records or {}
 
   local capturedAt = Now()
@@ -1856,8 +1860,37 @@ end
 
 EVENT_MANAGER:RegisterForEvent(GSA.name, EVENT_ADD_ON_LOADED, OnAddonLoaded)
 
+function GSA:SelectCaptureGuild(query)
+  local settings = self:EnsureSettings()
+  query = Lower(Trim(SafeText(query)))
+  if query == "" then
+    Chat("Application capture ESO guild ID: " .. SafeText(settings.captureGuildId or "not selected (legacy behavior)"))
+    Chat("Usage: /gsa guild <guild name or ESO guild ID>")
+    return
+  end
+  for index = 1, GetNumGuilds() do
+    local guildId = GetGuildId(index)
+    local guildName = GetGuildName(guildId)
+    if query == tostring(guildId) or query == Lower(Trim(guildName)) then
+      if next(self.saved.records or {}) then
+        Chat("Upload pending application records before changing guilds. Nothing was changed.")
+        return
+      end
+      settings.captureGuildId, settings.captureGuildName = tostring(guildId), guildName
+      Chat("Application capture selected: " .. guildName .. " / ESO guild ID: " .. tostring(guildId))
+      return
+    end
+  end
+  Chat("No joined guild matches that name or ESO guild ID. Nothing was changed.")
+end
+
 SLASH_COMMANDS["/gsa"] = function(args)
   args = Lower(Trim(SafeText(args)))
+
+  if args == "guild" or args:match("^guild%s+") then
+    GSA:SelectCaptureGuild(args:match("^guild%s+(.*)$") or "")
+    return
+  end
 
   if args == "settings" then
     GSA:OpenSettings()
@@ -1866,6 +1899,7 @@ SLASH_COMMANDS["/gsa"] = function(args)
 
   if args ~= "list" then
     Chat("GuildSyncApplications commands:")
+    Chat("/gsa guild <name or ESO guild ID> - select application capture guild")
     Chat("/gsa settings - open GuildSync Applications settings")
     Chat("/gsa list - list captured application records")
     return
