@@ -39,3 +39,9 @@ No Google Apps Script update is needed for these changes.
 ## Roster filters
 
 Selected Discord roles match **any** selected role (OR), just as selected ESO ranks do. Search and link-status filters still narrow those results. For ESO rank color matching, canonical Discord role aliases such as Associates and Soldiers take precedence over conflicting singular roles; singular roles remain a fallback when the plural role is absent. Rows and rank chips use the same lookup. No colors are fixed in code.
+
+## Gangster rank
+
+The Guild Roster offers Gangster in its rank filter, including before members have that rank. The Discord role filter includes synced roles even when unassigned, so Gangsters becomes selectable as soon as the bot syncs that Discord role. GuildSync does not create or assign the rank merely by adding the filter option; create the ESO rank and Discord role in their respective services.
+
+Gangster rows and filter chips use the synced Gangsters Discord role color, and track later color changes. The rank audit report recognizes Gangster/Gangsters below Associate. Existing onboarding and mute protection already recognize this rank; explicit role-name settings must still match the actual Discord names.
