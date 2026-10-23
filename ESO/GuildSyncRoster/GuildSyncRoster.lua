@@ -30,6 +30,7 @@ local gsrRosterSavedVars = nil
 local gsrLibHistoire = nil
 local gsrProcessor = nil
 local gsrInitialized = false
+local gsrStreamGeneration = 0
 
 local function GSR_Print(message)
     CHAT_ROUTER:AddSystemMessage("|c88CCFF[GuildSyncRoster]|r " .. tostring(message))
@@ -70,16 +71,19 @@ local function GSR_EventPassesRosterFilter(event)
 end
 
 local function GSR_GetTargetGuildId()
+    local selectedId = gsrSavedVars and gsrSavedVars.targetGuildId
+    local selectedName = gsrSavedVars and gsrSavedVars.targetGuildName or TARGET_GUILD_NAME
     for guildIndex = 1, GetNumGuilds() do
         local guildId = GetGuildId(guildIndex)
         local guildName = GetGuildName(guildId)
 
-        if string.lower(GSR_Trim(guildName)) == string.lower(TARGET_GUILD_NAME) then
+        if (selectedId and tostring(guildId) == tostring(selectedId))
+            or (not selectedId and string.lower(GSR_Trim(guildName)) == string.lower(selectedName)) then
             return guildId, guildIndex, guildName
         end
     end
 
-    GSR_Print("Could not find guild named: " .. TARGET_GUILD_NAME)
+    GSR_Print("Could not find selected guild: " .. tostring(selectedId or selectedName))
     return nil, nil, nil
 end
 
@@ -116,6 +120,37 @@ local function GSR_EnsureRosterSavedVars()
     gsrRosterSavedVars.rosterEvents = gsrRosterSavedVars.rosterEvents or {}
 
     return gsrRosterSavedVars
+end
+
+-- Never apply a singleton checkpoint from an unidentified guild to another guild.
+local function GSR_GuildCheckpoint(guildId)
+  local sv = GSR_EnsureSavedVars()
+  local key = tostring(guildId)
+  sv.lastProcessedIdsByGuild = sv.lastProcessedIdsByGuild or {}
+  if not sv.guildCheckpointMigrationComplete then
+    if sv.lastProcessedId ~= nil then
+      if tostring(sv.lastProcessedGuildId or "") == key then
+        sv.lastProcessedIdsByGuild[key] = sv.lastProcessedIdsByGuild[key] or tonumber(sv.lastProcessedId)
+      else
+        sv.unboundLegacyLastProcessedId = sv.lastProcessedId
+        GSR_Print("Legacy checkpoint has no matching guild identity; replaying available cached history safely.")
+      end
+    end
+    sv.guildCheckpointMigrationComplete = true
+  end
+  sv.lastProcessedGuildId = key
+  sv.lastProcessedId = tonumber(sv.lastProcessedIdsByGuild[key])
+  return sv.lastProcessedId
+end
+
+local function GSR_AdvanceGuildCheckpoint(guildId, eventId)
+  local sv = GSR_EnsureSavedVars()
+  local previous = GSR_GuildCheckpoint(guildId)
+  eventId = tonumber(eventId)
+  if eventId and (not previous or eventId > previous) then
+    sv.lastProcessedIdsByGuild[tostring(guildId)] = eventId
+    sv.lastProcessedId = eventId
+  end
 end
 
 local function GSR_IsDebugEnabled()
@@ -211,6 +246,8 @@ local function GSR_BuildRosterRecord(guildId, event)
 
     return {
         eventId = eventId,
+        guildId = tostring(guildId),
+        guildName = GetGuildName(guildId),
         targetDisplayName = GSR_Trim(GSR_GetInfoValue(info, "targetDisplayName", "displayName", "memberDisplayName",
             "accountName")),
         actingDisplayName = GSR_Trim(GSR_GetInfoValue(info, "actingDisplayName", "actorDisplayName", "sourceDisplayName")),
@@ -295,7 +332,7 @@ local function GSR_SaveRosterEvent(guildId, guildName, event)
         return
     end
 
-    local lastProcessedId = tonumber(stateSv.lastProcessedId)
+    local lastProcessedId = GSR_GuildCheckpoint(guildId)
 
     if lastProcessedId and eventId <= lastProcessedId then
         return
@@ -303,14 +340,16 @@ local function GSR_SaveRosterEvent(guildId, guildName, event)
 
     local record = GSR_BuildRosterRecord(guildId, event)
 
-    stateSv.lastProcessedId = eventId
+    GSR_AdvanceGuildCheckpoint(guildId, eventId)
 
     if GSR_Trim(record.eventType) == "unknown" then
         GSR_Debug("Skipped unknown roster event. EventId=" .. tostring(eventId))
         return
     end
 
-    rosterSv.rosterEvents["event_" .. tostring(eventId)] = record
+    rosterSv.guildId = tostring(guildId)
+    rosterSv.guildName = guildName
+    rosterSv.rosterEvents["guild_" .. tostring(guildId) .. "_event_" .. tostring(eventId)] = record
     GSR_Debug(GSR_GetRosterEventChatMessage(record))
 end
 
@@ -327,7 +366,7 @@ local function GSR_UpdateStreamProgressForSkippedEvent(guildId, guildName, event
         return
     end
 
-    stateSv.lastProcessedId = eventId
+    GSR_AdvanceGuildCheckpoint(guildId, eventId)
 end
 
 local function GSR_CreateProcessor(guildId, processorNameSuffix)
@@ -395,7 +434,9 @@ local function GSR_StartRosterStream()
         return
     end
 
-    local lastProcessedId = tonumber(stateSv.lastProcessedId)
+    local lastProcessedId = GSR_GuildCheckpoint(guildId)
+    gsrStreamGeneration = gsrStreamGeneration + 1
+    local generation = gsrStreamGeneration
 
     if lastProcessedId then
         GSR_Print("Starting roster stream after saved LastProcessedId=" .. tostring(lastProcessedId))
@@ -404,6 +445,7 @@ local function GSR_StartRosterStream()
     end
 
     local started = processor:StartStreaming(lastProcessedId, function(event)
+        if generation ~= gsrStreamGeneration or gsrProcessor ~= processor then return end
         if GSR_EventPassesRosterFilter(event) then
             GSR_SaveRosterEvent(guildId, guildName, event)
         else
@@ -412,6 +454,8 @@ local function GSR_StartRosterStream()
     end)
 
     if not started then
+        gsrProcessor = nil
+        gsrStreamGeneration = gsrStreamGeneration + 1
         GSR_Print("Roster stream could not be started.")
     else
         GSR_Print("Roster stream started.")
@@ -419,20 +463,67 @@ local function GSR_StartRosterStream()
 end
 
 local function GSR_StopRosterStream()
+    gsrStreamGeneration = gsrStreamGeneration + 1
     if not gsrProcessor then
         GSR_Debug("No roster processor has been created.")
-        return
+        return true
     end
 
     if not gsrProcessor.Stop then
         GSR_Print("Roster processor does not expose Stop().")
-        return
+        return false
     end
 
     local stopped = gsrProcessor:Stop()
     gsrProcessor = nil
 
     GSR_Print("Roster processor stopped: " .. tostring(stopped))
+    return true
+end
+
+local function GSR_ResetRosterStream()
+    local guildId = GSR_GetTargetGuildId()
+    if not guildId then return end
+    if not GSR_StopRosterStream() then return end
+    GSR_GuildCheckpoint(guildId)
+    local state = GSR_EnsureSavedVars()
+    state.lastProcessedIdsByGuild[tostring(guildId)] = nil
+    state.lastProcessedId = nil
+    GSR_Print("Resetting this guild's roster checkpoint; pending exports are retained. Replaying available cached history.")
+    GSR_StartRosterStream()
+end
+
+local function GSR_Status()
+    local guildId, _, guildName = GSR_GetTargetGuildId()
+    if not guildId then return end
+    local checkpoint = GSR_GuildCheckpoint(guildId)
+    GSR_Print("Guild: " .. tostring(guildName) .. " / ESO guild ID: " .. tostring(guildId))
+    GSR_Print("Roster stream running: " .. tostring(gsrProcessor and gsrProcessor.IsRunning and gsrProcessor:IsRunning() or false)
+        .. "; LastProcessedId=" .. tostring(checkpoint))
+end
+
+local function GSR_SelectGuild(query)
+    query = string.lower(GSR_Trim(query))
+    if query == "" then GSR_Status(); GSR_Print("Usage: /gsr guild <guild name or ESO guild ID>"); return end
+    local state, roster = GSR_EnsureSavedVars(), GSR_EnsureRosterSavedVars()
+    for index = 1, GetNumGuilds() do
+        local id = GetGuildId(index)
+        local name = GetGuildName(id)
+        if query == tostring(id) or query == string.lower(GSR_Trim(name)) then
+            if next(roster.rosterEvents) or next(roster.guildList.guildListMembers) then
+                GSR_Print("Upload pending roster events and the guild list before changing guilds. Nothing was changed.")
+                return
+            end
+            if not GSR_StopRosterStream() then return end
+            state.targetGuildId, state.targetGuildName = tostring(id), name
+            roster.guildId, roster.guildName = tostring(id), name
+            roster.guildList = {guildId = tostring(id), guildName = name, guildListMembers = {}}
+            GSR_Print("Selected guild " .. name .. " / ESO guild ID: " .. tostring(id))
+            GSR_StartRosterStream()
+            return
+        end
+    end
+    GSR_Print("No joined guild matches that name or ESO guild ID. Nothing was changed.")
 end
 
 local function GSR_DumpRosterEvents()
@@ -515,14 +606,20 @@ local function GSR_SaveGuildList()
 
         members[accountName] = {
             accountName = accountName,
+            guildId = tostring(guildId),
+            guildName = guildName,
             rankName = GSR_GetRankName(guildId, rankIndex),
         }
     end
 
     rosterSv.guildList = {
+        guildId = tostring(guildId),
+        guildName = guildName,
         listTimestamp = GetTimeStamp(),
         guildListMembers = members,
     }
+    rosterSv.guildId = tostring(guildId)
+    rosterSv.guildName = guildName
 
     GSR_Print("Saved " .. tostring(memberCount) .. " guild member(s) to GuildSyncRoster.guildList.guildListMembers.")
 end
@@ -573,6 +670,9 @@ local function GSR_ShowHelp()
     GSR_Print(
         "/gsr stream - Start roster LibHistoire stream after saved LastProcessedId, or from the beginning if not set.")
     GSR_Print("/gsr stop - Stop roster stream.")
+    GSR_Print("/gsr reset - Reset this guild's checkpoint and replay available history; pending exports are retained.")
+    GSR_Print("/gsr status - Show selected guild, ESO guild ID, stream status and checkpoint.")
+    GSR_Print("/gsr guild <name or ESO guild ID> - Select the guild; pending exports must be uploaded first.")
     GSR_Print("/gsr debug on - Enable roster debug output.")
     GSR_Print("/gsr debug off - Disable roster debug output.")
 end
@@ -608,6 +708,10 @@ local function GSR_HandleCommand(args)
         GSR_StopRosterStream()
         return
     end
+
+    if command == "reset" then GSR_ResetRosterStream(); return end
+    if command == "status" then GSR_Status(); return end
+    if command == "guild" then GSR_SelectGuild(rest); return end
 
     if command == "debug" then
         local lowerRest = string.lower(rest)

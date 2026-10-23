@@ -123,6 +123,8 @@ func (a *App) CollectGuildSyncRosterData(event GuildSyncSavedVarsFileModifiedEve
 	data := map[string]interface{}{
 		"table_name":   extracted.tableName,
 		"account_name": accountName,
+		"guildId":      accountWide["guildId"],
+		"guildName":    accountWide["guildName"],
 		"section_counts": map[string]interface{}{
 			"guildListMembers": guildListMemberCount,
 			"rosterEvents":     rosterEventCount,

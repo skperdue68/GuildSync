@@ -187,3 +187,8 @@ Administrator Configuration groups overrides by function and divides onboarding 
 
 Approved GuildSync users can view **Administrator Configuration** and **Raffle Bonus Tickets**. Users see read-only values and defaults, can refresh configuration, and can select a raffle to inspect its bonus rules. Only GuildSync administrators can change, reset, or save either section. These login permissions are separate from Discord roles.
 
+
+
+## Guild selection and replay
+
+See [Guild identity, replay, and Discord colors](GuildSync-Guild-Isolation.md) for ESO `/gsr reset`, guild selection commands, and per-guild server configuration.

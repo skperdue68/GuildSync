@@ -1,4 +1,5 @@
 import { notifyDiscordConfirmedLink } from './discord-onboarding.js';
+import {validateEsoGuildImport} from './eso-guild-origin.js';
 import { normalizeRaffleDate } from './raffle-date.js';
 import { initializeDiscordOnboardingSchema } from './discord-onboarding-schema.js';
 import { initializeVoiceMuteSchema } from './voice-mute-schema.js';
@@ -401,11 +402,14 @@ async function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS discord_roles (
       role_id VARCHAR(32) PRIMARY KEY,
       role_name VARCHAR(255) NOT NULL,
-      role_color VARCHAR(32)
+      role_color VARCHAR(32),
+      role_position INT NOT NULL DEFAULT 0
     )
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci
   `);
+
+  await addColumnIfMissing(db, 'discord_roles', 'role_position', 'INT NOT NULL DEFAULT 0');
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS discord_members (
@@ -738,6 +742,7 @@ function normalizeApplicationRecord(record = {}) {
 }
 
 export async function recordGuildSyncApplications(applicationDB, records = []) {
+  validateEsoGuildImport('applications', {records: Array.isArray(records) ? records : [records]});
   const normalizedRecords = (Array.isArray(records) ? records : [records])
     .map(normalizeApplicationRecord)
     .filter(Boolean);
@@ -983,6 +988,7 @@ export async function upsertDiscordRoles(applicationDB, payload) {
       const roleID = String(role.role_id || role.id || '').trim();
       const roleName = String(role.role_name || role.name || '').trim();
       const roleColor = role.role_color ?? null;
+      const rolePosition = normalizeDiscordRolePosition(role);
 
       if (!roleID) {
         continue;
@@ -993,21 +999,25 @@ export async function upsertDiscordRoles(applicationDB, payload) {
           INSERT INTO discord_roles (
             role_id,
             role_name,
-            role_color
+            role_color,
+            role_position
           )
           VALUES (
+            ?,
             ?,
             ?,
             ?
           )
           ON DUPLICATE KEY UPDATE
             role_name = VALUES(role_name),
-            role_color = VALUES(role_color)
+            role_color = VALUES(role_color),
+            role_position = VALUES(role_position)
         `,
         [
           roleID,
           roleName || 'Unnamed Role',
-          roleColor
+          roleColor,
+          rolePosition
         ]
       );
     }
@@ -1364,10 +1374,16 @@ export async function deleteDiscordMember(applicationDB, payload) {
   };
 }
 
+function normalizeDiscordRolePosition(role) {
+  const position = Number(role?.role_position ?? role?.position ?? 0);
+  return Number.isSafeInteger(position) && position >= 0 && position <= 2147483647 ? position : 0;
+}
+
 export async function upsertDiscordRole(applicationDB, role) {
   const roleID = String(role?.role_id || role?.id || '').trim();
   const roleName = String(role?.role_name || role?.name || '').trim();
   const roleColor = role?.role_color ?? null;
+  const rolePosition = normalizeDiscordRolePosition(role);
 
   if (!roleID) {
     return {
@@ -1380,21 +1396,25 @@ export async function upsertDiscordRole(applicationDB, role) {
       INSERT INTO discord_roles (
         role_id,
         role_name,
-        role_color
+        role_color,
+        role_position
       )
       VALUES (
+        ?,
         ?,
         ?,
         ?
       )
       ON DUPLICATE KEY UPDATE
         role_name = VALUES(role_name),
-        role_color = VALUES(role_color)
+        role_color = VALUES(role_color),
+        role_position = VALUES(role_position)
     `,
     [
       roleID,
       roleName || 'Unnamed Role',
-      roleColor
+      roleColor,
+      rolePosition
     ]
   );
 
@@ -1636,7 +1656,8 @@ export async function getDiscordMemberDataJSON(applicationDB) {
             JSON_OBJECT(
               'role_id', dr.role_id,
               'role_name', dr.role_name,
-              'role_color', dr.role_color
+              'role_color', dr.role_color,
+              'role_position', dr.role_position
             )
           ) AS roles
         FROM discord_member_roles dmr
@@ -1676,7 +1697,8 @@ export async function getDiscordRoleDataJSON(applicationDB) {
     SELECT
       role_id,
       role_name,
-      role_color
+      role_color,
+      role_position
     FROM discord_roles
     ORDER BY role_name
   `);
@@ -2665,6 +2687,7 @@ export async function markDepositMailSent(applicationDB, payload = {}) {
 }
 
 export async function insertBankingEntries(applicationDB, payload) {
+  validateEsoGuildImport('banking', payload);
   const entries = Array.isArray(payload?.entries)
     ? payload.entries
     : [];
@@ -3070,6 +3093,7 @@ export async function getRosterStreamHistoryForAccount(applicationDB, accountNam
 
 
 export async function processRosterData(applicationDB, payload = {}) {
+  validateEsoGuildImport('roster', payload);
   const data = payload?.data && typeof payload.data === 'object'
     ? payload.data
     : payload;
@@ -3975,6 +3999,8 @@ export function parseGuildSyncBankingSavedVarsLua(rawLuaText = '') {
   return {
     table_name: 'GuildSyncBanking',
     account_name: accountName,
+    guildId: accountWide.guildId || null,
+    guildName: accountWide.guildName || null,
     entries,
     entries_count: entries.length,
     section_counts: {
@@ -3997,6 +4023,8 @@ export function parseGuildSyncRosterSavedVarsLua(rawLuaText = '') {
   return {
     table_name: 'GuildSyncRoster',
     account_name: accountName,
+    guildId: accountWide.guildId || null,
+    guildName: accountWide.guildName || null,
     guildList: accountWide.guildList || null,
     rosterEvents: accountWide.rosterEvents || {}
   };

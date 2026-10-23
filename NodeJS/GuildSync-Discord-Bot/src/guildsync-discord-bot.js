@@ -550,6 +550,7 @@ async function recordGuildMemberActivity(member, action) {
 
   try {
     const result = await sendDiscordMemberLastSeen(guildSyncSocket, {
+      guild_id: member.guild.id,
       discord_id: member.user.id,
       username: member.user.username,
       timestamp: getUnixTimestampSeconds(),
@@ -712,7 +713,7 @@ async function scanHistoricalGuildMessages(guild) {
       `Historical scan sending last-seen update for ${activity.username} (${activity.discord_id}) at ${activity.timestamp} from ${activity.action}.`
     );
 
-    const result = await sendDiscordMemberLastSeen(guildSyncSocket, activity);
+    const result = await sendDiscordMemberLastSeen(guildSyncSocket, {...activity, guild_id: guild.id});
 
     if (result?.ok === false) {
       Log(`Historical scan could not update ${activity.username}: ${result.message || 'unknown error'}`);
@@ -730,6 +731,7 @@ async function scanHistoricalGuildMessages(guild) {
   Log(`Historical scan update send complete. Backend updated ${memberCount}/${latestByUserID.size} member(s).`);
 
   return {
+    guild_id: guild.id,
     message_count: messageCount,
     member_count: memberCount
   };

@@ -71,7 +71,8 @@ export async function syncDiscordRolesAndMembers(guild, guildSyncSocket) {
     .map((role) => ({
       role_id: role.id,
       role_name: role.name,
-      role_color: role.color
+      role_color: role.color,
+      role_position: role.position
     }));
 
   const rolesPayload = {
@@ -164,7 +165,8 @@ export function discordRoleToPayload(role) {
   return {
     role_id: role.id,
     role_name: role.name,
-    role_color: role.color
+    role_color: role.color,
+    role_position: role.position
   };
 }
 

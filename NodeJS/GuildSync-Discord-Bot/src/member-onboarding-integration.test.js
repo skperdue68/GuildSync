@@ -13,6 +13,7 @@ test('existing Discord role discovery includes newly created Gangsters without a
  const socket={connected:true,emit:(event,payload,cb)=>{payloads.push({event,payload});cb({ok:true,roles_processed:1,members_processed:0,members_removed:0});}};
  await syncDiscordRolesAndMembers(guild,socket);
  assert.deepEqual(payloads[0].payload.roles.map(role=>role.role_name),['Gangsters']);
+  assert.equal(payloads[0].payload.roles[0].role_position,1);
 });
 test('worker serializes startup/reconnect, observes true join timestamps and excludes bots',async()=>{
  const listeners=new Map(),socketListeners=new Map(),calls=[];

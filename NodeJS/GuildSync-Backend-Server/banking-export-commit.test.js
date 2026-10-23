@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {validateEsoGuildImport} from './eso-guild-origin.js';
 import { bankingSource } from './banking-source.js';
 
 const source = fs.readFileSync(new URL('./guildsync-database-actions.js', import.meta.url), 'utf8');
@@ -22,7 +23,7 @@ test('Sheets receives only new inserts after commit and preserves uploader attri
       }
     };
     const context = vm.createContext({
-      console, bankingSource, normalizeDepositMailTicketType: value => value,
+      console, bankingSource, validateEsoGuildImport, normalizeDepositMailTicketType: value => value,
       safeRollback: async c => c.rollback(),
       googleSheetsBankingConfig: () => ({ enabled: true }),
       getBankingDataJSON: async () => [],
