@@ -35,3 +35,7 @@ Set the bot's `DISCORD_GUILD_ID` explicitly for each instance. Authenticated bot
 Startup adds `discord_roles.role_position` if needed. Update and restart the bot and backend, resynchronize Discord roles/members, and rebuild the desktop and web clients. Discord rows use the highest positioned role with a nonzero Discord color. ESO roster ranks and filter chips resolve their corresponding Discord roles, including singular/plural rank aliases, instead of using fixed rank colors. Role updates refresh relevant rows and chips without rebuilding unrelated screens.
 
 No Google Apps Script update is needed for these changes.
+
+## Roster filters
+
+Selected Discord roles match **any** selected role (OR), just as selected ESO ranks do. Search and link-status filters still narrow those results. For ESO rank color matching, canonical Discord role aliases such as Associates and Soldiers take precedence over conflicting singular roles; singular roles remain a fallback when the plural role is absent. Rows and rank chips use the same lookup. No colors are fixed in code.

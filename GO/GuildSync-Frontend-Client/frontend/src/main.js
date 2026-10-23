@@ -7915,7 +7915,7 @@ function getFilteredDiscordMembers() {
 
     if (selectedRoleNames.length > 0) {
       const memberRoleNames = new Set(member.roles.map((role) => role.role_name));
-      if (!selectedRoleNames.every((roleName) => memberRoleNames.has(roleName))) {
+      if (!selectedRoleNames.some((roleName) => memberRoleNames.has(roleName))) {
         return false;
       }
     }
@@ -8200,7 +8200,7 @@ function getDiscordRoleNamesForRosterRank(rankName) {
 
   const candidates = rankAliases[normalizedRankName] || [cleanRankName];
 
-  return Array.from(new Set([cleanRankName, ...candidates].filter(Boolean)));
+  return Array.from(new Set([...candidates, cleanRankName].filter(Boolean)));
 }
 
 function normalizeDiscordRoleName(roleName) {
