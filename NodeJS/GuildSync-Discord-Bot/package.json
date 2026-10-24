@@ -12,5 +12,5 @@
     "start": "node src/guildsync-discord-bot.js"
   },
   "type": "module",
-  "version": "1.3.8"
+  "version": "1.3.9"
 }
