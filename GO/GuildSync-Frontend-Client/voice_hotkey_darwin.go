@@ -7,8 +7,18 @@ package main
 #include <ApplicationServices/ApplicationServices.h>
 #include <Carbon/Carbon.h>
 
-static int voice_mac_access(void) { return CGPreflightListenEventAccess(); }
-static int voice_mac_request_access(void) { return CGRequestListenEventAccess(); }
+static int voice_mac_access(void) {
+    if (__builtin_available(macOS 10.15, *)) {
+        return CGPreflightListenEventAccess();
+    }
+    return 0;
+}
+static int voice_mac_request_access(void) {
+    if (__builtin_available(macOS 10.15, *)) {
+        return CGRequestListenEventAccess();
+    }
+    return 0;
+}
 static int voice_mac_down(unsigned short key) { return CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, key); }
 static int voice_mac_character_key(int wanted) {
     TISInputSourceRef source = TISCopyCurrentKeyboardLayoutInputSource();
