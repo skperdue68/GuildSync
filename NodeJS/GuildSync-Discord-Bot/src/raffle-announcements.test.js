@@ -65,3 +65,20 @@ test('button-only archive reconciliation checks URLs as well as message text',as
   assert.equal(f.sends(),id==='archive'?0:1);
  }
 });
+
+test('new and reconciled scheduled summaries clean previous public summaries without duplicate sends',async()=>{
+ for(const reconcile of [false,true]) {
+  const order=[];const latest={id:'200',author:{id:'bot'},content:formatRaffles(snapshot),createdTimestamp:1000000};
+  const old={id:'100',author:{id:'bot'},content:formatRaffles(snapshot),createdTimestamp:1,delete:async()=>order.push('delete')};
+  const f=fixture([]);f.channel.messages.fetch=async()=>{order.push('scan');return new Collection([['200',latest],['100',old]]);};
+  f.channel.send=async()=>{order.push('send');return latest;};
+  await sendRaffleAnnouncement(f.client,'channel','guild',snapshot,{...delivery,reconcile},()=>{});
+  assert.deepEqual(order,reconcile?['scan','scan','delete']:['send','scan','delete']);
+ }
+});
+
+test('failed announcement publication never scans for cleanup or deletes previous summaries',async()=>{
+ const f=fixture([]);f.channel.send=async()=>{throw Error('send denied');};
+ f.channel.messages.fetch=async()=>assert.fail('cleanup must follow a successful publication');
+ await assert.rejects(sendRaffleAnnouncement(f.client,'channel','guild',snapshot,{...delivery,reconcile:false}),/send denied/);
+});

@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { createRaffleAnnouncer, requestActiveRaffles, formatRaffles, parseReminderHours } from './raffle.js';
 import { PermissionFlagsBits } from 'discord.js';
 import { fileLinkButtons, fileLinkContent } from './file-link-buttons.js';
+import { cleanupPublicRaffleSummaries } from './public-raffle-cleanup.js';
 
-export async function sendRaffleAnnouncement(client, channelId, guildId, snapshot, delivery) {
+export async function sendRaffleAnnouncement(client, channelId, guildId, snapshot, delivery, log = console.warn) {
   const channel = await client.channels.fetch(channelId);
   if (!channel?.guildId || !channel.isTextBased() || typeof channel.send !== 'function' ||
       (guildId && channel.guildId !== guildId)) {
@@ -28,8 +29,12 @@ export async function sendRaffleAnnouncement(client, channelId, guildId, snapsho
     let before;
     while (true) {
       const messages = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
-      if (messages.some(message => message.author.id === client.user.id && !message.interactionMetadata &&
-          (message.content === content || (message.content === renderedContent && sameLinks(message))) && message.createdTimestamp >= (delivery.createdAt - 60) * 1000)) return;
+      const accepted = messages.find(message => message.author.id === client.user.id && !message.interactionMetadata &&
+          (message.content === content || (message.content === renderedContent && sameLinks(message))) && message.createdTimestamp >= (delivery.createdAt - 60) * 1000);
+      if (accepted) {
+        await cleanupPublicRaffleSummaries(channel, accepted, client.user.id, log);
+        return;
+      }
       const oldest = messages.last();
       if (!oldest || messages.size < 100 || oldest.createdTimestamp < (delivery.createdAt - 60) * 1000) break;
       if (oldest.id === before) throw new Error('Could not finish raffle delivery reconciliation.');
@@ -38,7 +43,8 @@ export async function sendRaffleAnnouncement(client, channelId, guildId, snapsho
   }
   // Channel/history lookups can outlive the warning window.
   if (delivery.expiresAt !== undefined && Date.now() >= delivery.expiresAt * 1000) return;
-  await channel.send({ content:renderedContent, components:buttons, allowedMentions: { parse: [] }, nonce: delivery.id, enforceNonce: true });
+  const published = await channel.send({ content:renderedContent, components:buttons, allowedMentions: { parse: [] }, nonce: delivery.id, enforceNonce: true });
+  await cleanupPublicRaffleSummaries(channel, published, client.user.id, log);
 }
 
 export function startRaffleAnnouncements(client, socket, log, env = process.env) {
@@ -81,7 +87,7 @@ export function startRaffleAnnouncements(client, socket, log, env = process.env)
         await fs.writeFile(`${statePath}.tmp`, JSON.stringify(state, null, 2), 'utf8');
         await fs.rename(`${statePath}.tmp`, statePath);
       },
-      send: (snapshot, delivery) => sendRaffleAnnouncement(client, delivery.channelId || channelId, env.DISCORD_GUILD_ID, snapshot, delivery)
+      send: (snapshot, delivery) => sendRaffleAnnouncement(client, delivery.channelId || channelId, env.DISCORD_GUILD_ID, snapshot, delivery, log)
     });
   } catch (error) {
     log(`Raffle announcements disabled: ${error.message}`);
