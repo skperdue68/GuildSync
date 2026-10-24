@@ -23,7 +23,9 @@ test('Sheets receives only new inserts after commit and preserves uploader attri
       }
     };
     const context = vm.createContext({
-      console, bankingSource, validateEsoGuildImport, normalizeDepositMailTicketType: value => value,
+      console, bankingSource, validateEsoGuildImport,
+      enqueueSheetsExports:async()=>{assert.equal(committed,false);},
+      createSheetsExportStore:()=>({completed:async()=>{}}), normalizeDepositMailTicketType: value => value,
       safeRollback: async c => c.rollback(),
       googleSheetsBankingConfig: () => ({ enabled: true }),
       getBankingDataJSON: async () => [],

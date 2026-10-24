@@ -1,3 +1,5 @@
+import {registerCommunityStatisticsSocket} from './community-statistics.js';
+import {startSheetsExportRecovery} from './sheets-export-queue.js';
 import {initializeVoiceIdentitySchema,createVoiceIdentityService,registerVoiceIdentityRoutes,registerVoiceOnlyConnection,authorizeVoiceRequester,authenticateVoiceSocket} from './voice-auth.js';
 import {esoGuildConfiguration, initializeEsoGuildIdentity, validateEsoGuildImport} from './eso-guild-origin.js';
 import {registerDiscordGuildOrigin} from './discord-guild-origin.js';
@@ -114,6 +116,7 @@ const CURRENT_GUILDSYNC_CLIENT_VERSION = readReleaseVersion();
 let loginDB;
 let applicationDB;
 let sheetsRuntime;
+let sheetsExportRecovery;
 let configurationService;
 let voiceIdentityService;
 
@@ -130,10 +133,17 @@ voiceIdentityService=createVoiceIdentityService(loginDB,{secret:GUILDSYNC_JWT_SE
     selectPeriods: getRaffleRefreshSelection,
     loadCatchupEntries: async now => selectSheetsCatchupEntries(await getBankingDataJSON(applicationDB), now)
   });
+  sheetsExportRecovery=startSheetsExportRecovery(applicationDB,{
+    loadEntries:()=>getBankingDataJSON(applicationDB),
+    selectBootstrapEntries:async(entries,time)=>{
+      const {raffles}=await getActiveRaffleSummary(applicationDB,time);
+      return entries.filter(entry=>Number(entry.time)<=time&&raffles.some(window=>entry.type===window.type&&Number(entry.time)>=window.salesStart&&Number(entry.time)<=window.salesEnd));
+    }
+  });
 
   Log(`MariaDB database ready: ${GUILDSYNC_DB_NAME}`);
 } catch (error) {
-  Log('Failed to initialize MariaDB:', error);
+  Log('Failed to initialize MariaDB: '+error.message);
   process.exit(1);
 }
 
@@ -536,6 +546,14 @@ function registerVoiceForSocket(socket){
 io.on('connection', (socket) => {
   if(registerVoiceOnlyConnection(socket,registerVoiceForSocket))return;
   registerDiscordGuildOrigin(socket, Log);
+  registerCommunityStatisticsSocket(socket,{
+    db:applicationDB,loadBanking:getBankingDataJSON,
+    loadWindows:async(db,time)=>(await getActiveRaffleSummary(db,time)).raffles,
+    authorizeViewer:async current=>{
+      const [rows]=await loginDB.execute('SELECT role,allowed FROM guildsync_users WHERE discord_user_id=? LIMIT 1',[current.guildSyncUser.discord_user_id]);
+      return Number(rows[0]?.allowed)===1 && ['viewer','user','admin'].includes(roleViews.effective(current.guildSyncRoleViewId,rows[0]?.role)||rows[0]?.role);
+    }
+  });
   registerRolePermissions(socket,loginDB,roleViews);
   registerRoleViewSocket(socket,roleViews,async()=>{
     let profile;

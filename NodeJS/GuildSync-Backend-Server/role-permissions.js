@@ -34,6 +34,7 @@ const readEvents = new Set([
   'guildsync:request-roster-stream-history',
   'guildsync:request-discord-member-history',
   'guildsync:request-discord-member-history-events',
+  'guildsync:request-community-statistics',
   'guildsync:request-associate-ticket-report',
   'guildsync:request-discord-rank-audit-report',
   'guildsync:request-member-links',

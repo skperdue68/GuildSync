@@ -1,3 +1,5 @@
+import {initializeCommunityStatisticsSchema} from './community-statistics.js';
+import {initializeSheetsExportQueue, enqueueSheetsExports, createSheetsExportStore} from './sheets-export-queue.js';
 import { notifyDiscordConfirmedLink } from './discord-onboarding.js';
 import {validateEsoGuildImport} from './eso-guild-origin.js';
 import { normalizeRaffleDate } from './raffle-date.js';
@@ -342,6 +344,8 @@ async function createAndInitializePool() {
 }
 
 async function initializeSchema(db) {
+  await initializeSheetsExportQueue(db);
+  await initializeCommunityStatisticsSchema(db);
   await initializeDiscordOnboardingSchema(db);
   await initializeVoiceMuteSchema(db);
 
@@ -2822,6 +2826,8 @@ export async function insertBankingEntries(applicationDB, payload) {
       );
     }
 
+    const sheetSettings = googleSheetsBankingConfig();
+    await enqueueSheetsExports(connection, insertedEntries, {spreadsheetId:sheetSettings.spreadsheetId, uploadedBy:payload.uploadedBy});
     await connection.commit();
   } catch (error) {
     await safeRollback(connection);
@@ -2835,7 +2841,7 @@ export async function insertBankingEntries(applicationDB, payload) {
       const settings = googleSheetsBankingConfig();
       const enriched = settings.enabled ? await getBankingDataJSON(applicationDB) : insertedEntries;
       const byId = new Map(enriched.map(entry => [String(entry.eventId), entry]));
-      await syncBankingEntriesToGoogleSheets(insertedEntries.map(entry => ({ ...entry, ...(byId.get(String(entry.eventId)) || {}) })), { uploadedBy: payload.uploadedBy });
+      await syncBankingEntriesToGoogleSheets(insertedEntries.map(entry => ({ ...entry, ...(byId.get(String(entry.eventId)) || {}) })), { uploadedBy: payload.uploadedBy, onCompleted:ids=>createSheetsExportStore(applicationDB).completed(ids,settings.spreadsheetId) });
     } catch (error) { console.error(`Google Sheets banking sync failed: ${error.message}`); }
   }
 
@@ -3671,7 +3677,11 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
   const mailStatus = isAnonymousEntry ? 'sent' : 'unsent';
   const mailRequestId = isAnonymousEntry ? `manual_no_mail_${event_id}` : null;
 
-  const [result] = await applicationDB.execute(
+  const connection = await applicationDB.getConnection();
+  let result;
+  try {
+    await connection.beginTransaction();
+    [result] = await connection.execute(
     `
       INSERT IGNORE INTO guildsync_banking_entries (
         event_id,
@@ -3730,6 +3740,18 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
     ]
   );
 
+    if (result.affectedRows) {
+      const settings=googleSheetsBankingConfig();
+      await enqueueSheetsExports(connection,[{eventId:event_id,type:transactionType}],{spreadsheetId:settings.spreadsheetId,uploadedBy:addedBy});
+    }
+    await connection.commit();
+  } catch(error) {
+    await safeRollback(connection);
+    throw error;
+  } finally {
+    connection.release();
+  }
+
   await setSetting(applicationDB, 'banking_refresh', new Date().toISOString());
 
   if (result.affectedRows && googleSheetsBankingConfig().enabled) {
@@ -3738,11 +3760,12 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
         type: transactionType, eventId: event_id, displayName: accountName,
         amount: goldValue, ticketAmount: tickets, dataSource, note: auditedNote, time: timestamp
       };
+      const sheetSettings = googleSheetsBankingConfig();
       const versions = await getRaffleBonusVersions(applicationDB);
       const overrides = await getRaffleBonusOverrides(applicationDB);
       await syncBankingEntriesToGoogleSheets([{
         ...entry, ...calculateBankingEntryBonus(entry, versions, overrides)
-      }], { uploadedBy: addedBy });
+      }], { uploadedBy: addedBy, onCompleted:ids=>createSheetsExportStore(applicationDB).completed(ids,sheetSettings.spreadsheetId) });
     } catch (error) { console.error(`Google Sheets manual entry sync failed: ${error.message}`); }
   }
 

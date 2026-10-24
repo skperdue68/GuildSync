@@ -101,14 +101,14 @@ function easternTimestamp() {
   return `${value.month}/${value.day}/${value.year} ${value.hour}:${value.minute}${value.dayPeriod.toLowerCase()} ET`;
 }
 
-export async function syncBankingEntriesToGoogleSheets(entries, { log = exportLog, uploadedBy = '' } = {}) {
+export async function syncBankingEntriesToGoogleSheets(entries, { log = exportLog, uploadedBy = '', onCompleted = async () => {} } = {}) {
   const settings = config();
   entries = (entries || []).filter(entry => tabFor(entry.type, settings));
   if (!settings.enabled || !entries.length) return { enabled: settings.enabled, synced: 0 };
   return coordinate(async state => {
     if(!config().enabled)return {enabled:false,synced:0};
     try {
-      return await writeEntries(entries, uploadedBy, state, log);
+      return await writeEntries(entries, uploadedBy, state, log, {onCompleted});
     } catch (error) {
       await log('Export stopped: ' + error.message);
       throw error;
@@ -134,7 +134,7 @@ export async function refreshBankingEntriesToGoogleSheets(loadSnapshot, { upload
         ['biweekly', 'monthly'].some(type => periods.filter(period => period.type === type && Number.isSafeInteger(period.end)).length !== 1)) {
       throw new Error('Refresh requires both selected raffle periods and their draw dates.');
     }
-    const result = await writeEntries(entries, uploadedBy, state, log, true, false, periods, results, templates, saveTemplates, targetId);
+    const result = await writeEntries(entries, uploadedBy, state, log, {replace:true,includeClosed:false,periods,results,templates,saveTemplates,targetId});
     await onComplete(snapshot);
     return result;
   }, { processRollover });
@@ -150,7 +150,7 @@ function attributionRequest(sheetId, type, uploadedBy) {
   } };
 }
 
-async function writeEntries(entries, uploadedBy, state, log, replace = false, includeClosed = false, periods = [], results = {}, templates = {}, saveTemplates = async () => {}, targetId) {
+async function writeEntries(entries, uploadedBy, state, log, {replace = false, includeClosed = false, periods = [], results = {}, templates = {}, saveTemplates = async () => {}, targetId, onCompleted = async () => {}} = {}) {
   const { settings, token, url } = await googleContext(targetId);
   if (!settings.spreadsheetId) throw new Error('Google spreadsheet ID is missing.');
   await log('Starting spreadsheet update: entries=' + entries.length);
@@ -191,6 +191,7 @@ async function writeEntries(entries, uploadedBy, state, log, replace = false, in
     preparation = [];
     await log('Spreadsheet update completed: entries=' + pending.length);
     synced += pending.length;
+    await onCompleted(pending.map(item => String(item.eventId)));
     pending = [];
   };
   for (const entry of entries) {
@@ -237,6 +238,8 @@ async function writeEntries(entries, uploadedBy, state, log, replace = false, in
     const rows = sections.get(range);
     if (rows.some(row => String(row[0] ?? '') === String(entry.eventId))) {
       await log('Duplicate skipped: ' + entry.eventId);
+      // A duplicate reserved in this not-yet-written batch is not durable yet.
+      if (!pending.some(item => String(item.eventId) === String(entry.eventId))) await onCompleted([String(entry.eventId)]);
       continue;
     }
     // A row is reusable only when both transaction ID and member name are blank.
