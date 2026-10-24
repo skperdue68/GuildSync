@@ -2507,6 +2507,28 @@ body {
 }
 
 .raffle-bonus-card { display: block; }
+.community-statistics-card { display:block; }
+.community-statistics-card .report-option-copy { width:100%; min-width:0; }
+.community-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.community-toolbar button { flex-shrink:0; }
+.community-status { padding:8px 0; }
+.community-status:empty { padding:0; }
+.community-overview { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:14px 0; }
+.community-overview > div { padding:10px 12px; background:rgba(96,165,250,.08); border-radius:8px; }
+.community-overview dt { color:#CBD5E1; font-size:12px; }
+.community-overview dd { margin:4px 0 0; color:#F8FAFC; font-size:21px; font-weight:700; overflow-wrap:anywhere; }
+.community-highlights { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr)); gap:14px; margin-top:14px; }
+.community-highlight { min-width:0; padding:12px; border:1px solid rgba(148,163,184,.2); border-radius:8px; }
+.community-highlight h4 { margin:0 0 5px; color:#F8FAFC; font-size:15px; }
+.community-highlight > p,.community-coverage { font-size:12px; }
+.community-highlight ol { margin:10px 0 0; padding-left:22px; }
+.community-highlight li { padding:5px 0; color:#CBD5E1; overflow-wrap:anywhere; }
+.community-highlight li > div { display:inline; }
+.community-highlight li small { display:block; color:#94A3B8; font-size:11px; }
+.community-highlight li strong { display:block; color:#BFDBFE; font-size:13px; }
+.community-highlight li strong small { display:inline; }
+.community-coverage { margin-top:14px; color:#94A3B8; }
+.community-coverage ul { padding-left:18px; margin:6px 0 0; }
 .raffle-bonus-card form { display: grid; gap: 14px; margin-top: 14px; }
 .raffle-bonus-tiers { border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 10px; padding: 12px; }
 .raffle-bonus-tiers legend { font-weight: 700; padding: 0 6px; }

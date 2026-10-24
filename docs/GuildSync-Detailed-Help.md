@@ -467,3 +467,8 @@ Administrator Configuration groups overrides by function and divides onboarding 
 ## Guild selection and replay
 
 See [Guild identity, replay, and Discord colors](GuildSync-Guild-Isolation.md) for ESO `/gsr reset`, guild selection commands, and per-guild server configuration.
+
+
+## Community highlights and automatic Sheets recovery
+
+See [community highlights and spreadsheet recovery](GuildSync-Community-Statistics.md) for the Reports and Admin statistics, their historical coverage, new database tables, automatic raffle export retries, and Linux troubleshooting.

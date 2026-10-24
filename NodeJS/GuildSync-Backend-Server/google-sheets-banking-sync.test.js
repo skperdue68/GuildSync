@@ -37,7 +37,7 @@ function fixture(t, { rows = [], state = {}, formulaRanges = [], drawDates = ['0
     configureSheetsCoordinator(async operation => operation({}));
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   });
-  return { calls, writes, logs, run: entries => syncBankingEntriesToGoogleSheets(entries, { log: async value => logs.push(value), uploadedBy: 'EvaineFaye' }) };
+  return { calls, writes, logs, run: (entries,options={}) => syncBankingEntriesToGoogleSheets(entries, { log: async value => logs.push(value), uploadedBy: 'EvaineFaye', ...options }) };
 }
 const ticket = (extra = {}) => ({ type: 'biweekly', eventId: '123', displayName: 'Player', amount: 200001, ticketAmount: 200,
   bonusEnabled: true, bonusTickets: 20, bonusPercent: 10, time: Date.parse('2026-09-15T16:00:00Z')/1000, ...extra });
@@ -304,4 +304,19 @@ test('displayed raffle uses the same inclusive sales cutoff as archive catchup f
  }
  const written = JSON.stringify(f.writes);
  assert.ok(!written.includes('-before') && !written.includes('-end'));
+});
+
+test('durable export acknowledgement includes written and duplicate IDs but never deferred entries',async t=>{
+ const f=fixture(t,{rows:[['existing','Already written',100]]});const completed=[];
+ await f.run([ticket({eventId:'existing'}),ticket({eventId:'new'}),ticket({eventId:'old',time:1000})],{onCompleted:async ids=>completed.push(...ids)});
+ assert.deepEqual(completed.sort(),['existing','new']);
+});
+test('failed Google batch never acknowledges the entries as exported',async t=>{
+ const f=fixture(t);const fetch=globalThis.fetch;globalThis.fetch=async(url,init)=>String(url).endsWith(':batchUpdate')?{ok:false,status:503,json:async()=>({error:{message:'temporary outage'}})}:fetch(url,init);
+ const completed=[];await assert.rejects(f.run([ticket()],{onCompleted:async ids=>completed.push(...ids)}),/503/);assert.deepEqual(completed,[]);
+});
+
+test('input duplicate is not acknowledged before the pending batch succeeds',async t=>{
+ const f=fixture(t);const fetch=globalThis.fetch;globalThis.fetch=async(url,init)=>String(url).endsWith(':batchUpdate')?{ok:false,status:503,json:async()=>({error:{message:'outage'}})}:fetch(url,init);
+ const completed=[];await assert.rejects(f.run([ticket(),ticket()],{onCompleted:async ids=>completed.push(...ids)}),/503/);assert.deepEqual(completed,[]);
 });

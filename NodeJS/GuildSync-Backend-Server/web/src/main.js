@@ -4,6 +4,7 @@ import {createUserAdministrationPanel,pendingBadge} from './user-administration.
 import './user-administration.css';
 import {reconcileDataRows,syncDataHTML,syncDataText} from './live-data-view.js';
 import {createConfigurationPanel,createAccordionState,wireReportAccordions} from './admin-configuration.js';
+import {createCommunityStatisticsPanel} from './community-statistics.js';
 import './style.css';
 import splashImage from './assets/splash.png';
 import appIcon from './assets/icon.png';
@@ -219,6 +220,7 @@ let raffleBonusSettings = null;
 let raffleBonusDraft = null;
 let bonusResetToDefaults = false;
 const reportsAccordion=createAccordionState();
+const communityStatisticsPanel=createCommunityStatisticsPanel({request:(event,payload)=>emitSocketWithAck(event,payload,30000),getSessionKey:()=>isAuthenticatedSession()?guildSyncSession.token:''});
 const adminConfigurationPanel=createConfigurationPanel({canEdit:()=>guildSyncSession?.user?.role === 'admin'});
 let raffleBonusRaffles = [];
 let selectedBonusRaffle = '';
@@ -1892,6 +1894,7 @@ function renderReportsPanel() {
       </div>
 
       <div class="reports-scroll-area">
+        ${communityStatisticsPanel.render()}
         ${renderRaffleBonusSettings()}
         ${adminConfigurationPanel.render()}
         <section class="reports-list" aria-label="Available reports">
@@ -1946,6 +1949,7 @@ function wireReportsPanel() {
   }
 
   wireReportAccordions(reportsAccordion, { refresh: true });
+  communityStatisticsPanel.wire();
   adminConfigurationPanel.wire({request:(event,payload)=>emitSocketWithAck(event,payload,120000),rerender:renderGuildSyncTabLayout});
   wireRaffleBonusSettings();
 

@@ -34,3 +34,5 @@ Build the web client with `npm ci` followed by `npm run build:web` in `NodeJS/Gu
 
 
 See [guild identity, replay, and Discord colors](docs/GuildSync-Guild-Isolation.md) for multiple-guild setup and ESO replay commands.
+
+See [community highlights and automatic spreadsheet recovery](docs/GuildSync-Community-Statistics.md) for report usage, tracking coverage, retry behavior, and deployment.

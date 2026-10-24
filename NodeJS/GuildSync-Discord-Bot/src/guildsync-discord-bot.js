@@ -1,3 +1,4 @@
+import {recordDiscordInteraction} from './interaction-statistics.js';
 import {createLiveConfiguration} from './live-configuration.js';
 import {createOnboardingWorker} from './member-onboarding.js';
 import {readOnboardingConfig} from './member-onboarding-config.js';
@@ -336,6 +337,7 @@ client.once(Events.ClientReady, async readyClient => {
 });
 
 client.on(Events.InteractionCreate, async interaction => {
+  recordDiscordInteraction(guildSyncSocket, interaction, DISCORD_GUILD_ID);
   if (!interaction.isChatInputCommand()) {
     return;
   }
