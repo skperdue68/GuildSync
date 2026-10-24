@@ -1,7 +1,7 @@
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.9"
+#define MyAppVersion "1.4.0"
 #endif
-#define MyAppNumericVersion "1.3.9"
+#define MyAppNumericVersion "1.4.0"
 #ifndef SourceRoot
 #define SourceRoot "payload"
 #endif
@@ -22,7 +22,7 @@ DisableDirPage=no
 DisableWelcomePage=no
 DefaultGroupName=GuildSync
 OutputDir={#OutputRoot}
-OutputBaseFilename=GuildSync-Setup-1.3.9-Windows
+OutputBaseFilename=GuildSync-Setup-1.4.0-Windows
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
