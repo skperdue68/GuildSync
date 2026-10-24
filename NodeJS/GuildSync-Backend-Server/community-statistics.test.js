@@ -7,6 +7,37 @@ test('history counts real joins only; tenure uses latest recorded join, not snap
  assert.equal(report.highlights.find(x=>x.id==='longest-member').rows[0].value,0);
  assert.deepEqual(report.highlights.find(x=>x.id==='discord-joins').rows.map(x=>x.name),['Live']);
 });
+test('community activity groups posts and reactions by actor, excluding bot command telemetry',()=>{
+ const report=buildCommunityStatistics({activity:[
+  {discord_id:'1',username:'Alice',activity_type:'post',activity_count:3},
+  {discord_id:'1',username:'Alice',activity_type:'reaction',activity_count:4},
+  {discord_id:'2',username:'Bob',activity_type:'post',activity_count:5},
+ ],interactions:[{discord_id:'3',username:'Commands',interaction_count:100}],commandUsage:[{interaction_name:'tickets',interaction_count:100}]});
+ const rows=id=>report.highlights.find(h=>h.id===id).rows.map(r=>[r.name,r.value]);
+ assert.deepEqual(rows('discord-busiest'),[['Alice',7],['Bob',5]]);
+ assert.deepEqual(rows('discord-posts'),[['Bob',5],['Alice',3]]);
+ assert.deepEqual(rows('discord-reactions'),[['Alice',4]]);
+ assert.equal(report.overview.find(r=>r.label==='Recorded Discord activity').value,12);
+ assert.ok(!report.highlights.some(h=>['discord-commands','discord-interactions'].includes(h.id)));
+});
+test('membership coverage explains missing actual joins rather than treating import dates as membership',()=>{
+ const report=buildCommunityStatistics({now:100000,roster:[{account_name:'Known',in_roster:1},{account_name:'Unknown',in_roster:1,joined_timestamp:'1'}],rosterEvents:[{account_name:'Known',event_type:'joined',event_timestamp:100}]});
+ const longest=report.highlights.find(h=>h.id==='longest-member');
+ assert.equal(longest.title,'Longest membership with a known join date');
+ assert.match(longest.description,/1 of 2 current members/);
+ assert.deepEqual(longest.rows.map(r=>r.name),['Known']);
+});
+test('activity writes require matching guild bot, deduplicate event keys, and omit extra payload',async()=>{
+ const handlers={},calls=[];const socket={on:(e,h)=>handlers[e]=h,guildSyncAuthenticated:true,guildSyncAuthType:'discord-bot',guildSyncBot:{guild_id:'456'}};
+ registerCommunityStatisticsSocket(socket,{db:{execute:async(...args)=>calls.push(args)}});
+ const payload={guildId:'456',eventKey:'a'.repeat(64),userId:'789',displayName:'Actor',type:'post',content:'private'};
+ let result;await handlers['guildsync:record-discord-activity'](payload,r=>result=r);
+ assert.equal(result.ok,true);assert.match(calls[0][0],/INSERT IGNORE/);assert.ok(!JSON.stringify(calls).includes('private'));
+ await handlers['guildsync:record-discord-activity']({...payload,guildId:'999'},r=>result=r);assert.equal(result.ok,false);
+ socket.guildSyncAuthType='GuildSync user';await handlers['guildsync:record-discord-activity'](payload,r=>result=r);assert.equal(result.ok,false);
+ socket.guildSyncAuthType='discord-bot';await handlers['guildsync:record-discord-activity']({...payload,type:'slash'},r=>result=r);assert.equal(result.ok,false);
+ assert.equal(calls.length,1);
+});
 test('approved report auth and bot-only write reject unauthorized sockets before querying',async()=>{
  const handlers={};let queries=0;const socket={on:(e,h)=>handlers[e]=h,emit(){},guildSyncAuthenticated:false};
  registerCommunityStatisticsSocket(socket,{db:{execute:async()=>{queries++;return [[]];}},loadBanking:async()=>[]});
@@ -44,7 +75,7 @@ test('report selections only use columns from actual startup table definitions',
  const schema=await readFile(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
  const ownSchema=await readFile(new URL('./community-statistics.js',import.meta.url),'utf8');
  const tables=new Map();
- for(const name of ['guildsync_roster_members','guildsync_roster_events','discord_members','discord_member_history','guildsync_discord_interactions','guildsync_community_statistics_metadata']){
+ for(const name of ['guildsync_roster_members','guildsync_roster_events','discord_members','discord_member_history','guildsync_discord_interactions','guildsync_discord_activity','guildsync_community_statistics_metadata']){
   const start=(schema+'\n'+ownSchema).indexOf('CREATE TABLE IF NOT EXISTS '+name+' (');
   assert.ok(start>=0,'Missing CREATE '+name);
   const definition=(schema+'\n'+ownSchema).slice(start).match(/\(([\s\S]*?)\)\s*(?:CHARACTER|`)/)[1];
@@ -63,19 +94,13 @@ test('report selections only use columns from actual startup table definitions',
  }},loadBanking:async()=>[],now:()=>100});
  let result;await handlers['guildsync:request-community-statistics']({},r=>result=r);assert.equal(result.ok,true);
 });
-test('command highlight counts slash requests by command and explains coverage',()=>{
- const report=buildCommunityStatistics({commandUsage:[{interaction_name:'raffle',interaction_count:7},{interaction_name:'tickets',interaction_count:3}]});
- const highlight=report.highlights.find(h=>h.id==='discord-commands');
- assert.deepEqual(highlight.rows.map(r=>[r.name,r.value]),[['/raffle',7],['/tickets',3]]);
- assert.match(highlight.description,/since tracking began/);
-});
-test('command usage query filters slash interactions and groups command names',async()=>{
+test('activity report groups action types, reads separate coverage start, and does not query commands',async()=>{
  const handlers={};const sqls=[];const socket={on:(e,h)=>handlers[e]=h,guildSyncAuthenticated:true,guildSyncUser:{role:'viewer'}};
- registerCommunityStatisticsSocket(socket,{db:{execute:async sql=>{sqls.push(sql);return [sql.includes('GROUP BY interaction_name')?[{interaction_name:'tickets',interaction_count:4}]:[]];}},loadBanking:async()=>[]});
+ registerCommunityStatisticsSocket(socket,{db:{execute:async sql=>{sqls.push(sql);return [sql.includes('GROUP BY discord_id, activity_type')?[{discord_id:'123',username:'Actor',activity_type:'post',activity_count:4}]:[]];}},loadBanking:async()=>[]});
  let result;await handlers['guildsync:request-community-statistics']({},r=>result=r);
- const query=sqls.find(sql=>sql.includes('GROUP BY interaction_name'));
- assert.match(query,/interaction_type\s*=\s*'slash'/);
- assert.equal(result.report.highlights.find(h=>h.id==='discord-commands').rows[0].value,4);
+ assert.ok(sqls.some(sql=>sql.includes("metadata_key = 'discord_activity_since'")));
+ assert.ok(!sqls.some(sql=>sql.includes('guildsync_discord_interactions')));
+ assert.equal(result.report.highlights.find(h=>h.id==='discord-posts').rows[0].value,4);
 });
 
 test('revoked approved socket is refused by current-approval hook before report queries',async()=>{

@@ -4,20 +4,22 @@
 
 Open Reports and Admin, then Community highlights. The section loads on demand and Refresh updates only its results, preserving the page position. All approved Viewer, User, and Admin accounts can read it. No editing or account management privileges are granted by this report.
 
-Highlights include the most recorded guild joins and departures (including kicks), Discord joins/departures, longest and newest recorded current guild memberships, Discord interaction leaders, most-used bot commands, current Bi-Weekly and 50/50 purchased-ticket leaders, and lifetime recorded raffle spending. Community totals show current roster sizes, recorded interactions, and raffle spending.
+Highlights include the most recorded guild joins and departures (including kicks), Discord joins/departures, longest and newest recorded current guild memberships, Busiest Discord Users (posts plus reactions given), Most Posts, Most Reactions Given, current Bi-Weekly and 50/50 purchased-ticket leaders, and lifetime recorded raffle spending. Community totals show current roster sizes, recorded post/reaction activity, and raffle spending.
 
 Colors, other report sections, and the main roster/banking screens are unchanged. The section uses the existing Reports accordion. Cached results and pending requests are discarded when the authenticated session changes.
 
 ### What the numbers mean
 
 - These are rankings from retained GuildSync records, not claims of complete all-time history.
-- Membership tenure uses actual recorded join events and current roster membership. Snapshot capture dates are not treated as real join dates. Missing joins/departures can leave people unranked or affect recorded tenure.
+- Membership tenure uses actual recorded join events and current roster membership. Snapshot capture dates are not treated as real join dates. Missing joins/departures can leave people unranked or affect recorded tenure. Both membership rankings show how many current members lack an actual recorded join date; roster import dates are not reliable substitutes.
 - Bulk Discord imports are excluded from join counts. Existing live history can treat first discovery during an update as a join; the report discloses that limitation.
 - Raffle purchasers are grouped by ESO account, ignoring case. Current-period leaders use existing raffle sales windows. Purchased tickets exclude bonus tickets; zero-ticket donations are excluded from purchase spending. Gold totals remove the +1/+3 raffle markers and exclude future-dated transactions.
-- New activity tracking counts slash-command requests, buttons, selects, and modals handled by this GuildSync bot. It does not count all Discord messages or commands belonging to other bots. A failed command can still count as a request. Offline or failed telemetry deliveries are not backfilled.
-- Tracking starts when the backend schema is first initialized. Old command usage cannot be reconstructed automatically.
+- Discord activity counts new posts and emoji reactions given (including likes). Busiest Discord Users adds those two counts. Bots, DMs, system messages, historical scans, and bot commands are excluded. Emojis typed inside a post are not separate reactions.
+- Each post counts once. Each member/message/emoji reaction counts once, so removing and re-adding the same reaction does not inflate the ranking. Deleting posts or removing reactions does not subtract earlier recorded activity.
+- Counts cover only events the bot receives in channels it can access while connected. Offline or failed deliveries are not backfilled. These are recorded totals, not complete Discord-wide totals.
+- The separate Discord activity tracking date starts when this update initializes the backend schema. The old last-seen tracking overwrote earlier activity and cannot reconstruct historical totals. Earlier slash-command counts are retained separately but no longer appear in the report.
 
-The activity table stores Discord interaction/guild/user IDs, display names, interaction kind, slash command name, and collection time. It does not store command arguments, message text, component IDs, selected values, or modal contents. Interaction IDs prevent duplicate counting. Records are retained until explicitly removed; access requires the authenticated GuildSync bot for writes and currently approved GuildSync access for reports.
+The `guildsync_discord_activity` table stores deduplicated event keys, guild/user IDs, display names, action type, and collection time. Reaction identity is hashed for deduplication; message text, attachments, and emoji text are not saved. Records are retained until explicitly removed. Writes require the authenticated matching-guild bot; reports require currently approved GuildSync access.
 
 ## Automatic raffle spreadsheet recovery
 
@@ -54,8 +56,9 @@ Startup creates these tables idempotently:
 | Table | Purpose |
 | --- | --- |
 | guildsync_sheets_export_queue | Per-spreadsheet transaction export state, attempt count, retry time, last error, completion time. |
-| guildsync_discord_interactions | Deduplicated Discord bot usage metadata. |
-| guildsync_community_statistics_metadata | Persistent tracking start time. |
+| guildsync_discord_activity | Deduplicated posts and emoji reactions given for community rankings. |
+| guildsync_discord_interactions | Retained earlier bot usage metadata; excluded from current activity rankings. |
+| guildsync_community_statistics_metadata | Separate persistent start times for legacy interactions and post/reaction activity. |
 
 Read-only queue review:
 
@@ -69,3 +72,5 @@ ORDER BY status, next_attempt_at, event_id;
 Back up the database, deploy the updated backend and bot, restart both, and rebuild/deploy the web and desktop clients. Existing Linux installations extracted from a server ZIP need the updated server files or a newly built server release; git pull does not update a directory that was never cloned. No new dependency, slash-command registration, Google Apps Script update, or new environment setting is required. Schema setup runs as part of ordinary startup.
 
 Tests simulate Google/database failures and cannot establish that a production spreadsheet is writable. Confirm a real eligible deposit appears on the working sheet after deployment and review the queue/logs if it does not.
+
+For the Discord activity update, deploy and restart **both** the backend and Discord bot, and rebuild/update both clients to show the revised coverage label. Existing Discord message/reaction intents are sufficient; no new `.env`, slash-command registration, Google Apps Script change, or dependency is required. New totals begin when the updated bot starts sending activity to the updated backend.

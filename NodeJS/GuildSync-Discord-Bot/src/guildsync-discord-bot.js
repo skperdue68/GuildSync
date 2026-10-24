@@ -1,4 +1,4 @@
-import {recordDiscordInteraction} from './interaction-statistics.js';
+import {recordDiscordPost, recordDiscordReaction} from './community-activity.js';
 import {createLiveConfiguration} from './live-configuration.js';
 import {createOnboardingWorker} from './member-onboarding.js';
 import {readOnboardingConfig} from './member-onboarding-config.js';
@@ -337,7 +337,6 @@ client.once(Events.ClientReady, async readyClient => {
 });
 
 client.on(Events.InteractionCreate, async interaction => {
-  recordDiscordInteraction(guildSyncSocket, interaction, DISCORD_GUILD_ID);
   if (!interaction.isChatInputCommand()) {
     return;
   }
@@ -374,6 +373,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
 
 client.on(Events.MessageCreate, async message => {
+  recordDiscordPost(guildSyncSocket, message, DISCORD_GUILD_ID, {log: Log});
   if (!message.guild || message.author?.bot) {
     return;
   }
@@ -397,6 +397,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
       return;
     }
 
+    recordDiscordReaction(guildSyncSocket, reaction, user, DISCORD_GUILD_ID, {log: Log});
     const member = await guild.members.fetch(user.id).catch(() => null);
 
     await recordGuildMemberActivity(member, 'reaction_add');
