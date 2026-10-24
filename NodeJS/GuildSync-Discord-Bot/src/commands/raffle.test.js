@@ -25,3 +25,15 @@ test('/raffle rejects DMs and handles a disconnected backend', async () => {
   await assert.rejects(requestActiveRaffles({ connected: false }), /unavailable/);
   await assert.rejects(requestActiveRaffles({ connected: true, timeout() { return this; }, emit(_e, _p, cb) { cb(new Error('timeout')); } }), /did not respond/);
 });
+
+test('public raffle summary cleans older posts after publication; ephemeral requests do not scan',async()=>{
+ for(const isPublic of [true,false]) {
+  const order=[];let posted;const botId='123';const guildId=process.env.DISCORD_GUILD_ID || 'test-guild';
+  const interaction={guildId,client:{user:{id:botId}},options:{getBoolean:name=>name==='public'?isPublic:false},
+   channel:{messages:{fetch:async()=>{order.push('scan');const old={id:'100',author:{id:botId},content:posted.content,delete:async()=>order.push('delete')};return new Map([['100',old]]);}}},
+   deferReply:async()=>{},editReply:async value=>{order.push('published');posted={...value,id:'200',author:{id:botId}};return posted;}};
+  const socket={connected:true,timeout(){return this;},emit(event,payload,callback){callback(null,{ok:true,asOf:1000,raffles:[{type:'biweekly',prizeGold:200000,totalTickets:1,drawCount:1,drawTime:2000}]});}};
+  await execute(interaction,socket,()=>{});
+  assert.deepEqual(order,isPublic?['published','scan','delete']:['published']);
+ }
+});

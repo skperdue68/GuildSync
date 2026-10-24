@@ -472,3 +472,10 @@ See [Guild identity, replay, and Discord colors](GuildSync-Guild-Isolation.md) f
 ## Community highlights and automatic Sheets recovery
 
 See [community highlights and spreadsheet recovery](GuildSync-Community-Statistics.md) for the Reports and Admin statistics, their historical coverage, new database tables, automatic raffle export retries, and Linux troubleshooting.
+
+
+## Public raffle summary cleanup
+
+Successful scheduled raffle-value announcements and public `/raffle` responses run same-channel cleanup. The helper paginates message history in batches of 100 and recognizes the GuildSync-generated summary structure plus the current bot author ID. It keeps the highest `As of` snapshot timestamp, breaking ties by Discord message ID, so an older persisted delivery retried later cannot displace fresher information. Prior public slash replies are eligible as well as scheduled posts.
+
+Publication must succeed before scanning/deleting. A reconciled scheduled delivery also runs cleanup. Each obsolete summary is deleted individually, allowing removal of messages older than the bulk-deletion window. Unknown Message responses from concurrent cleanup are ignored; read and other delete errors are logged without failing a successful publication or triggering duplicate sends. The bot requires Read Message History and access to delete its own posts. Cleanup is limited to this bot's recognizable public raffle-value summaries; it excludes ephemeral/private ticket replies, archive notifications, unrelated posts, other bots, and user messages. No new environment setting, dependency, command registration, backend migration, or Google Apps Script change is required. Deploy the updated Discord bot files and restart `guildsync-bot`.

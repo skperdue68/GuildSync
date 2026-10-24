@@ -197,3 +197,10 @@ See [Guild identity, replay, and Discord colors](GuildSync-Guild-Isolation.md) f
 ## Community highlights and automatic Sheets recovery
 
 See [community highlights and spreadsheet recovery](GuildSync-Community-Statistics.md) for the Reports and Admin statistics, their historical coverage, new database tables, automatic raffle export retries, and Linux troubleshooting.
+
+
+## Keeping public raffle information current
+
+When the bot posts a scheduled raffle-value summary or you run `/raffle public:true`, it scans that same channel and removes its older raffle-value summaries. The summary with the freshest data remains; ties keep the newest post. This also cleans up summaries posted before the update. Private ticket replies, archive notifications, other announcements, and messages from people or other bots are preserved.
+
+The bot needs Read Message History in that channel. Cleanup problems are reported in the bot logs; the new summary remains available. No additional setting is required.
