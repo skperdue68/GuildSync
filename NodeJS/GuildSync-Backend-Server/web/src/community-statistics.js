@@ -9,7 +9,7 @@ export function renderCommunityStatistics(report){
  return `${overview.length?`<dl class="community-overview">${overview.map(item=>`<div><dt>${escape(item.label)}</dt><dd>${escape(number(item.value))}</dd></div>`).join('')}</dl>`:''}
  ${!overview.length&&!highlights.length?'<p>No community statistics are available yet.</p>':''}
  <div class="community-highlights">${highlights.map(item=>`<section class="community-highlight"><h4>${escape(item.title)}</h4><p>${escape(item.description)}</p>${list(item.rows).length?`<ol>${list(item.rows).slice(0,5).map(row=>`<li><div><span>${escape(row.name || 'Unknown member')}</span>${row.detail?`<small>${escape(row.detail)}</small>`:''}</div><strong>${escape(number(row.value))}${item.unit?` <small>${escape(item.unit)}</small>`:''}</strong></li>`).join('')}</ol>`:'<p class="community-empty">No records yet.</p>'}</section>`).join('')}</div>
- <div class="community-coverage">${date(report.generatedAt)?`<p>Updated ${escape(date(report.generatedAt))}</p>`:''}${date(report.trackingSince)?`<p>Interaction tracking since ${escape(date(report.trackingSince))}</p>`:''}${list(report.notes).length?`<ul>${report.notes.map(note=>`<li>${escape(note)}</li>`).join('')}</ul>`:''}</div>`;
+ <div class="community-coverage">${date(report.generatedAt)?`<p>Updated ${escape(date(report.generatedAt))}</p>`:''}${date(report.trackingSince)?`<p>Discord activity tracking since ${escape(date(report.trackingSince))}</p>`:''}${list(report.notes).length?`<ul>${report.notes.map(note=>`<li>${escape(note)}</li>`).join('')}</ul>`:''}</div>`;
 }
 
 export function createCommunityStatisticsPanel({request,getSessionKey=()=>'default'}){
