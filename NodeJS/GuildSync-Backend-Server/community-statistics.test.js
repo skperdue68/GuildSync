@@ -66,9 +66,15 @@ test('tenure does not claim uninterrupted membership when a later departure is r
  const report=buildCommunityStatistics({now:1000,roster:[{account_name:'A',in_roster:1}],rosterEvents:[{account_name:'A',event_type:'joined',event_timestamp:100},{account_name:'A',event_type:'left',event_timestamp:200}]});
  assert.deepEqual(report.highlights.find(x=>x.id==='longest-member').rows,[]);
 });
-test('guild departures include actual left and kicked event types',()=>{
- const report=buildCommunityStatistics({rosterEvents:[{account_name:'A',event_type:'left'},{account_name:'A',event_type:'kicked'},{account_name:'A',event_type:'promoted'}]});
- assert.equal(report.highlights.find(x=>x.id==='guild-leaves').rows[0].value,2);
+test('membership cards show only source-labelled joins at the end without changing counts',()=>{
+ const report=buildCommunityStatistics({rosterEvents:[{account_name:'A',event_type:'joined'},{account_name:'A',event_type:'joined'},{account_name:'A',event_type:'left'},{account_name:'A',event_type:'kicked'}],discordHistory:[{discord_id:'1',username:'Discord member',event_type:'joined_server',source:'live_event'},{discord_id:'1',event_type:'left_server',source:'live_event'}]});
+ assert.deepEqual(report.highlights.slice(-2).map(h=>h.id),['guild-joins','discord-joins']);
+ assert.equal(report.highlights.filter(h=>['guild-joins','discord-joins'].includes(h.id)).length,2);
+ assert.ok(!report.highlights.some(h=>['guild-leaves','discord-leaves'].includes(h.id)));
+ const [guild,discord]=report.highlights.slice(-2);
+ assert.match(guild.title,/ESO guild/);assert.match(discord.title,/Discord server/);
+ assert.equal(guild.unit,'joins');assert.equal(discord.unit,'joins');
+ assert.equal(guild.rows[0].value,2);assert.equal(discord.rows[0].value,1);
 });
 test('report selections only use columns from actual startup table definitions',async()=>{
  const {readFile}=await import('node:fs/promises');

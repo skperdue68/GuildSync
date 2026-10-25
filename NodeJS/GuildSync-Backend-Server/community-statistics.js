@@ -10,9 +10,17 @@ export async function initializeCommunityStatisticsSchema(db){
  await db.query(`INSERT IGNORE INTO guildsync_community_statistics_metadata (metadata_key,metadata_value) VALUES ('discord_activity_since', DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H:%i:%sZ'))`);
 }
 export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),trackingSince=null,roster=[],rosterEvents=[],discordMembers=[],discordHistory=[],activity=[],banking=[],windows=[]}={}){
- const highlights=[];const add=(id,title,description,unit,rows)=>highlights.push({id,title,description,unit,rows});
- for(const [event,suffix] of [['joined','joins'],['left','leaves']])add('guild-'+suffix,'Most recorded guild '+suffix,'Recorded ESO roster events; departures include left and kicked. History may be incomplete.','events',leaders(rosterEvents.filter(r=>r.event_type===event||(event==='left'&&r.event_type==='kicked')),r=>r.account_name,()=>1));
- for(const [event,suffix] of [['joined_server','joins'],['left_server','leaves']])add('discord-'+suffix,'Most recorded Discord '+suffix,'Live history entries only; bulk snapshots excluded. First discovery during an update can be recorded as a join.','events',leaders(discordHistory.filter(r=>r.event_type===event&&r.source==='live_event'),r=>r.discord_id,()=>1));
+ const highlights=[];
+ const membershipIds=new Set(['guild-joins','discord-joins']);
+ const add=(id,title,description,unit,rows)=>{
+   const card={id,title,description,unit,rows};
+   // Keep the two membership sources at the end as other highlights are added.
+   const membershipIndex=highlights.findIndex(item=>membershipIds.has(item.id));
+   if(!membershipIds.has(id)&&membershipIndex>=0)highlights.splice(membershipIndex,0,card);
+   else highlights.push(card);
+ };
+ add('guild-joins','ESO guild: most recorded joins','Recorded ESO guild join events. Rejoins count again; retained history may be incomplete.','joins',leaders(rosterEvents.filter(r=>r.event_type==='joined'),r=>r.account_name,()=>1));
+ add('discord-joins','Discord server: most recorded joins','Live Discord server join records only; bulk imports excluded. First discovery during an update can appear as a join.','joins',leaders(discordHistory.filter(r=>r.event_type==='joined_server'&&r.source==='live_event'),r=>r.discord_id,()=>1));
  // A roster snapshot timestamp can be the import date. Only an actual recorded join establishes tenure.
  const current=roster.filter(r=>Number(r.in_roster)===1);const tenure=current.flatMap(r=>{const joins=rosterEvents.filter(e=>e.account_name.toLowerCase()===r.account_name.toLowerCase()&&e.event_type==='joined').map(e=>Number(e.event_timestamp)).filter(t=>t>0&&t<=now);if(!joins.length)return [];const joined=Math.max(...joins);const departed=rosterEvents.some(e=>String(e.account_name).toLowerCase()===r.account_name.toLowerCase()&&['left','kicked'].includes(e.event_type)&&Number(e.event_timestamp)>=joined&&Number(e.event_timestamp)<=now);if(departed)return [];return [{name:r.account_name,value:Math.floor((now-joined)/86400),detail:'Latest recorded join: '+new Date(joined*1000).toISOString()}];});
  const missingJoins=current.filter(r=>!rosterEvents.some(e=>String(e.account_name).toLowerCase()===String(r.account_name).toLowerCase()&&e.event_type==='joined'&&Number(e.event_timestamp)>0&&Number(e.event_timestamp)<=now)).length;
