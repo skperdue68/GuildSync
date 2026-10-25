@@ -9,15 +9,15 @@ test('history counts real joins only; tenure uses latest recorded join, not snap
 });
 test('community activity groups posts and reactions by actor, excluding bot command telemetry',()=>{
  const report=buildCommunityStatistics({activity:[
-  {discord_id:'1',username:'Alice',activity_type:'post',activity_count:3},
-  {discord_id:'1',username:'Alice',activity_type:'reaction',activity_count:4},
-  {discord_id:'2',username:'Bob',activity_type:'post',activity_count:5},
+  {discord_id:'1',username:'Alice',activity_type:'post',activity_count:3,activity_timestamp:Math.floor(Date.now()/1000)},
+  {discord_id:'1',username:'Alice',activity_type:'reaction',activity_count:4,activity_timestamp:Math.floor(Date.now()/1000)},
+  {discord_id:'2',username:'Bob',activity_type:'post',activity_count:5,activity_timestamp:Math.floor(Date.now()/1000)},
  ],interactions:[{discord_id:'3',username:'Commands',interaction_count:100}],commandUsage:[{interaction_name:'tickets',interaction_count:100}]});
  const rows=id=>report.highlights.find(h=>h.id===id).rows.map(r=>[r.name,r.value]);
  assert.deepEqual(rows('discord-busiest'),[['Alice',7],['Bob',5]]);
  assert.deepEqual(rows('discord-posts'),[['Bob',5],['Alice',3]]);
  assert.deepEqual(rows('discord-reactions'),[['Alice',4]]);
- assert.equal(report.overview.find(r=>r.label==='Recorded Discord activity').value,12);
+ assert.equal(report.overview.find(r=>r.label==='Discord activity (last 30 days)').value,12);
  assert.ok(!report.highlights.some(h=>['discord-commands','discord-interactions'].includes(h.id)));
 });
 test('membership coverage explains missing actual joins rather than treating import dates as membership',()=>{
@@ -87,7 +87,7 @@ test('report selections only use columns from actual startup table definitions',
   const match=sql.trim().match(/^SELECT\s+([\s\S]+?)\s+FROM\s+(\w+)/i);assert.ok(match,sql);
   const columns=tables.get(match[2]);assert.ok(columns,'Unknown table '+match[2]);
   for(const expression of match[1].split(',')){
-   const name=expression.trim().match(/^(?:MAX\()?([a-z_]+)/i)?.[1];if(name==='COUNT')continue;
+   const name=expression.trim().match(/^(?:(?:MAX|UNIX_TIMESTAMP)\()?([a-z_]+)/i)?.[1];if(name==='COUNT')continue;
    assert.ok(columns.has(name),match[2]+' missing '+name);
   }
   return [[]];
@@ -96,7 +96,7 @@ test('report selections only use columns from actual startup table definitions',
 });
 test('activity report groups action types, reads separate coverage start, and does not query commands',async()=>{
  const handlers={};const sqls=[];const socket={on:(e,h)=>handlers[e]=h,guildSyncAuthenticated:true,guildSyncUser:{role:'viewer'}};
- registerCommunityStatisticsSocket(socket,{db:{execute:async sql=>{sqls.push(sql);return [sql.includes('GROUP BY discord_id, activity_type')?[{discord_id:'123',username:'Actor',activity_type:'post',activity_count:4}]:[]];}},loadBanking:async()=>[]});
+ registerCommunityStatisticsSocket(socket,{db:{execute:async sql=>{sqls.push(sql);return [sql.includes('GROUP BY discord_id, activity_type')?[{discord_id:'123',username:'Actor',activity_type:'post',activity_count:4,activity_timestamp:Math.floor(Date.now()/1000)}]:[]];}},loadBanking:async()=>[]});
  let result;await handlers['guildsync:request-community-statistics']({},r=>result=r);
  assert.ok(sqls.some(sql=>sql.includes("metadata_key = 'discord_activity_since'")));
  assert.ok(!sqls.some(sql=>sql.includes('guildsync_discord_interactions')));
@@ -108,4 +108,24 @@ test('revoked approved socket is refused by current-approval hook before report 
  const socket={guildSyncAuthenticated:true,guildSyncAuthType:'GuildSync user',guildSyncUser:{role:'viewer',discord_user_id:'123'},on:(name,handler)=>handlers[name]=handler};
  registerCommunityStatisticsSocket(socket,{db:{execute:()=>assert.fail('must not query report')},loadBanking:()=>[],authorizeViewer:async()=>false});
  await handlers['guildsync:request-community-statistics']({},value=>response=value);assert.equal(response.ok,false);
+});
+
+test('Discord activity uses inclusive rolling 30 days and expires without new activity',()=>{
+ const now=4000000, cutoff=now-30*86400;
+ const activity=[{discord_id:'1',username:'Boundary',activity_type:'post',activity_count:2,activity_timestamp:cutoff},{discord_id:'2',username:'Old',activity_type:'post',activity_count:20,activity_timestamp:cutoff-1},{discord_id:'3',username:'Future',activity_type:'reaction',activity_count:30,activity_timestamp:now+1},{discord_id:'1',username:'Boundary',activity_type:'reaction',activity_count:1,activity_timestamp:now}];
+ const report=buildCommunityStatistics({now,activity});
+ assert.deepEqual(report.highlights.find(h=>h.id==='discord-busiest').rows.map(r=>[r.name,r.value]),[['Boundary',3]]);
+ assert.equal(report.overview.find(r=>r.label==='Discord activity (last 30 days)').value,3);
+ assert.match(report.highlights.find(h=>h.id==='discord-posts').description,/30 days/);
+ assert.equal(buildCommunityStatistics({now:now+30*86400+2,activity}).highlights.find(h=>h.id==='discord-busiest').rows.length,0);
+});
+
+test('activity SQL bounds original event timestamps without deleting history',async()=>{
+ const handlers={},calls=[];const now=4000000;
+ const socket={on:(e,h)=>handlers[e]=h,guildSyncAuthenticated:true,guildSyncUser:{role:'viewer'}};
+ registerCommunityStatisticsSocket(socket,{db:{execute:async(...args)=>{calls.push(args);return [[]];}},loadBanking:async()=>[],now:()=>now});
+ let result;await handlers['guildsync:request-community-statistics']({},r=>result=r);
+ assert.equal(result.ok,true);const query=calls.find(([sql])=>sql.includes('FROM guildsync_discord_activity'));
+ assert.match(query[0],/recorded_at >= FROM_UNIXTIME\(\?\)/);assert.match(query[0],/recorded_at <= FROM_UNIXTIME\(\?\)/);assert.deepEqual(query[1],[now-30*86400,now]);
+ assert.ok(!calls.some(([sql])=>/DELETE|UPDATE/i.test(sql)));
 });
