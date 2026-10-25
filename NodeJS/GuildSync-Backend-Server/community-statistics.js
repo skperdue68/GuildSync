@@ -10,7 +10,17 @@ export async function initializeCommunityStatisticsSchema(db){
  await db.query(`INSERT IGNORE INTO guildsync_community_statistics_metadata (metadata_key,metadata_value) VALUES ('discord_activity_since', DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H:%i:%sZ'))`);
 }
 export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),trackingSince=null,roster=[],rosterEvents=[],discordMembers=[],discordHistory=[],activity=[],banking=[],windows=[]}={}){
- const highlights=[];const add=(id,title,description,unit,rows)=>highlights.push({id,title,description,unit,rows});
+ const highlights=[];
+ const membershipIds=new Set(['guild-joins','discord-joins']);
+ const add=(id,title,description,unit,rows)=>{
+   const card={id,title,description,unit,rows};
+   // Keep the two membership sources at the end as other highlights are added.
+   const membershipIndex=highlights.findIndex(item=>membershipIds.has(item.id));
+   if(!membershipIds.has(id)&&membershipIndex>=0)highlights.splice(membershipIndex,0,card);
+   else highlights.push(card);
+ };
+ add('guild-joins','ESO guild: most recorded joins','Recorded ESO guild join events. Rejoins count again; retained history may be incomplete.','joins',leaders(rosterEvents.filter(r=>r.event_type==='joined'),r=>r.account_name,()=>1));
+ add('discord-joins','Discord server: most recorded joins','Live Discord server join records only; bulk imports excluded. First discovery during an update can appear as a join.','joins',leaders(discordHistory.filter(r=>r.event_type==='joined_server'&&r.source==='live_event'),r=>r.discord_id,()=>1));
  // A roster snapshot timestamp can be the import date. Only an actual recorded join establishes tenure.
  const current=roster.filter(r=>Number(r.in_roster)===1);const tenure=current.flatMap(r=>{const joins=rosterEvents.filter(e=>e.account_name.toLowerCase()===r.account_name.toLowerCase()&&e.event_type==='joined').map(e=>Number(e.event_timestamp)).filter(t=>t>0&&t<=now);if(!joins.length)return [];const joined=Math.max(...joins);const departed=rosterEvents.some(e=>String(e.account_name).toLowerCase()===r.account_name.toLowerCase()&&['left','kicked'].includes(e.event_type)&&Number(e.event_timestamp)>=joined&&Number(e.event_timestamp)<=now);if(departed)return [];return [{name:r.account_name,value:Math.floor((now-joined)/86400),detail:'Latest recorded join: '+new Date(joined*1000).toISOString()}];});
  const missingJoins=current.filter(r=>!rosterEvents.some(e=>String(e.account_name).toLowerCase()===String(r.account_name).toLowerCase()&&e.event_type==='joined'&&Number(e.event_timestamp)>0&&Number(e.event_timestamp)<=now)).length;
@@ -25,9 +35,6 @@ export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),tracki
  for(const w of windows){const rows=purchases.filter(r=>typeOf(r.type)===w.type&&Number(r.time)>=w.salesStart&&Number(r.time)<=w.salesEnd);add('tickets-'+w.type,'Current '+(w.type==='monthly'?'50/50':'Bi-weekly')+' ticket purchasers','Purchased tickets only; bonus tickets excluded.','tickets',leaders(rows,r=>r.displayName,r=>positive(r.purchasedTickets)));}
  const spending=r=>{const n=positive(r.amount),digit=Math.trunc(n)%10;return [1,3].includes(digit)&&n>digit?n-digit:n;};
  add('raffle-spending','Lifetime recorded raffle spending','Recorded ticket purchases across both raffles, excluding +1/+3 markers; retained banking history only.','gold',leaders(purchases,r=>r.displayName,spending));
- // Keep the two distinct membership sources together at the end of the highlights.
- add('guild-joins','ESO guild: most recorded joins','Recorded ESO guild join events. Rejoins count again; retained history may be incomplete.','joins',leaders(rosterEvents.filter(r=>r.event_type==='joined'),r=>r.account_name,()=>1));
- add('discord-joins','Discord server: most recorded joins','Live Discord server join records only; bulk imports excluded. First discovery during an update can appear as a join.','joins',leaders(discordHistory.filter(r=>r.event_type==='joined_server'&&r.source==='live_event'),r=>r.discord_id,()=>1));
  return {generatedAt:new Date(now*1000).toISOString(),trackingSince,notes:['Membership and raffle history may be incomplete; these are recorded totals, not all-time claims.','Imported Discord snapshots are not actual joins. Live first discoveries can also appear as joins. Snapshot-only ESO dates are excluded; missing departures/rejoins can still affect recorded tenure.','Discord activity counts new posts and emoji reactions given in channels the bot can access; bots, DMs, system posts, and historical scans are excluded. Older last-seen values cannot reconstruct these totals.','Only event keys, guild/user IDs, display names, action type and collection time are stored; no message text or attachments. Activity records are retained until explicitly removed.'],overview:[{label:'Current ESO members',value:current.length},{label:'Current Discord members',value:discordMembers.length},{label:'Recorded Discord activity',value:recordedActivity.reduce((n,r)=>n+positive(r.activity_count),0)},{label:'Recorded raffle spending (gold)',value:purchases.reduce((n,r)=>n+spending(r),0)}],highlights};
 }
 export function registerCommunityStatisticsSocket(socket, {
