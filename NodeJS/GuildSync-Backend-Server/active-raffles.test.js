@@ -7,6 +7,16 @@ const actions = await import('./guildsync-database-actions.js');
 const cutoff = 1781996400;
 const draw = cutoff + 3600;
 
+test('prearchive catchup uses persisted source windows and original deposit cutoff', () => {
+  const windows = actions.getSheetsRaffleWindows(cutoff);
+  const entries = [
+    { type: 'biweekly', eventId: 'before', time: cutoff - 1 },
+    { type: 'biweekly', eventId: 'boundary', time: cutoff },
+    { type: 'biweekly', eventId: 'after', time: cutoff + 1 }
+  ];
+  assert.deepEqual(actions.selectSheetsCatchupEntries(entries, cutoff + 7200, windows).map(e => e.eventId), ['before', 'boundary']);
+});
+
 test('rollover catchup uses banking sales periods, includes held entries and ongoing 50/50, excludes closed/future/nonraffle', () => {
   const now = cutoff + 4 * 3600;
   const candidates = [

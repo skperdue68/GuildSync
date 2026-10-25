@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resetRequests, startSheetsRollover, drawDateRequest } from './sheets-rollover-runtime.js';
 import { configureSheetsCoordinator, syncBankingEntriesToGoogleSheets } from './google-sheets-banking-sync.js';
+process.env.MARIADB_USER ||= 'test';
+process.env.MARIADB_PASSWORD ||= 'test';
 
 for (const [type, donationRows, donationColumns] of [['biweekly', [61, 70], [15, 18]], ['monthly', [35, 44], [13, 16]]]) {
   test(`${type} reset touches exact values/notes ranges, hides G and replaces only prior markers`, () => {
@@ -43,7 +45,7 @@ for (const [type, donationRows, donationColumns] of [['biweekly', [61, 70], [15,
   });
 }
 
-async function fixture(t, { copyFailure = false, uncertainClear = false, sourceAsCopy = false, replacedArchiveIds = [], cellSaveFailure = false, snapshotFailure = false, skipMonthly = false, loadCatchupEntries = async () => [] } = {}) {
+async function fixture(t, { appendFailure = false, copyFailure = false, uncertainClear = false, sourceAsCopy = false, replacedArchiveIds = [], cellSaveFailure = false, snapshotFailure = false, skipMonthly = false, loadCatchupEntries = async () => [] } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'guildsync-rollover-test-'));
   const env = {
     GUILDSYNC_GOOGLE_SHEETS_ENABLED: 'true', GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_ENABLED: 'true',
@@ -55,12 +57,14 @@ async function fixture(t, { copyFailure = false, uncertainClear = false, sourceA
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   Object.assign(process.env, env);
   const originalFetch = globalThis.fetch;
-  const calls = [], mutations = [], markers = [], batches = [];
+  const calls = [], mutations = [], markers = [], batches = [], completed = [];
   let state = { version: 1, windows: [{ type: 'biweekly', salesEnd: 1000, drawTime: 2000 }, { type: 'monthly', salesEnd: 3000, drawTime: 4000 }], lastClosedSalesEnd: {}, pending: null };
   let copy, released = 0, failClear = uncertainClear;
+  const sheetRows = [];
   const connection = {
     beginTransaction: async()=>{},commit:async()=>{},rollback:async()=>{},
     async execute(sql, params) {
+      if (sql.startsWith('UPDATE guildsync_sheets_export_queue')) { assert.equal(params[0],'original-source'); completed.push(params[1]); return [{}]; }
       if (sql.includes('guildsync_raffle_archive_cells')) { if (cellSaveFailure) throw Error('archive cell storage failed'); return [{}]; }
       if (sql.startsWith('UPDATE guildsync_settings')) return [{}];
       if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
@@ -94,16 +98,21 @@ async function fixture(t, { copyFailure = false, uncertainClear = false, sourceA
     }
     else if (url.endsWith(':batchUpdate')) {
       assert.equal(url, 'https://sheets.googleapis.com/v4/spreadsheets/original-source:batchUpdate');
-      mutations.push('clear');
       const requests = JSON.parse(init.body).requests;
+      const appends = requests.filter(request => request.updateCells?.start?.columnIndex === 3);
+      if (appendFailure && appends.length) throw Error('Google append failed');
+      mutations.push(appends.length ? 'append' : 'clear');
+      for (const request of appends) sheetRows.push(request.updateCells.rows[0].values.map(cell => Object.values(cell.userEnteredValue)[0]));
       batches.push(requests);
-      assert.ok(requests.every(request => (request.updateCells?.range.sheetId ?? request.updateDimensionProperties?.range.sheetId ?? request.createDeveloperMetadata?.developerMetadata.location.sheetId) === 7 || (request.updateCells?.range.sheetId ?? request.updateDimensionProperties?.range.sheetId ?? request.createDeveloperMetadata?.developerMetadata.location.sheetId) === 8));
+      assert.ok(requests.every(request => [7,8].includes(request.updateCells?.range?.sheetId ?? request.updateCells?.start?.sheetId ?? request.updateDimensionProperties?.range.sheetId ?? request.createDeveloperMetadata?.developerMetadata.location.sheetId)));
       markers.push(...requests.filter(request => request.createDeveloperMetadata).map(request => request.createDeveloperMetadata.developerMetadata));
       if (failClear) { failClear = false; throw new Error('response lost after clear'); }
       body = {};
     } else if (url.startsWith('https://sheets.googleapis.com/v4/spreadsheets/original-source?')) body = {
-      sheets: [{ properties: { sheetId: 7, title: 'bi-weekly raffle' }, developerMetadata: markers }, { properties: { sheetId: 8, title: '50/50' }, developerMetadata: markers }]
+      sheets: [{ properties: { sheetId: 7, title: 'bi-weekly raffle', gridProperties: {rowCount:300,columnCount:20} }, developerMetadata: markers }, { properties: { sheetId: 8, title: '50/50', gridProperties: {rowCount:300,columnCount:20} }, developerMetadata: markers }]
     };
+    else if (decodeURIComponent(url).includes('!R7') || decodeURIComponent(url).includes('!P7')) body = {values:[['09/26/26']]};
+    else if (url.includes('/values/')) body = {values:sheetRows};
     else throw new Error('Unexpected URL: ' + url);
     return { ok: true, json: async () => structuredClone(body) };
   };
@@ -116,8 +125,65 @@ async function fixture(t, { copyFailure = false, uncertainClear = false, sourceA
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await rm(dir, { recursive: true, force: true });
   });
-  return { start, calls, mutations, batches, state: () => state, released: () => released };
+  return { start, calls, mutations, batches, sheetRows, completed, state: () => state, released: () => released };
 }
+
+test('ordinary export during hold reaches period-filtered writer without advancing archive', async t => {
+  const f = await fixture(t);
+  process.env.GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_DELAY_HOURS = '4';
+  const runtime = f.start();
+  let written = false;
+  await runtime.run(() => { written = true; }, { ordinaryWrite: true });
+  assert.equal(written, true);
+  assert.equal(f.state().pending.archiveId, null);
+  assert.deepEqual(f.mutations, []);
+});
+
+test('archive replays source windows before copy and stops on database failure', async t => {
+  let replayWindows;
+  const f = await fixture(t, { loadCatchupEntries: async (now, windows) => {
+    replayWindows = windows;
+    throw Error('source replay unavailable');
+  } });
+  await assert.rejects(f.start().archive(), /source replay unavailable/);
+  assert.deepEqual(replayWindows, f.state().windows);
+  assert.deepEqual(f.mutations, []);
+  assert.equal(f.state().pending.archiveId, null);
+});
+
+test('late upload during hold writes once, excludes postcutoff deposits, and survives recovery before archive', async t => {
+  const deposit = {type:'biweekly',eventId:'late',time:Date.parse('2026-09-26T22:59:59Z')/1000,amount:100001,ticketAmount:10,displayName:'Late depositor'};
+  const after = {...deposit,eventId:'next-period',time:Date.parse('2026-09-26T23:00:01Z')/1000};
+  const f = await fixture(t, {loadCatchupEntries:async (now, windows) => windows ? [deposit,after] : []});
+  process.env.GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_DELAY_HOURS = '4';
+  const runtime = f.start();
+  const completed = [];
+  await syncBankingEntriesToGoogleSheets([deposit,after], {log:async()=>{},onCompleted:async ids=>completed.push(...ids)});
+  assert.deepEqual(completed,['late']);
+  assert.deepEqual(f.sheetRows.map(row=>row[0]),['late']);
+  await f.start().archive();
+  assert.deepEqual(f.mutations,['append','archive','verify','clear']);
+  assert.equal(f.sheetRows.length,1,'prearchive replay confirms the existing ID instead of duplicating it');
+  runtime.stop();
+});
+
+test('prearchive replay recovers database-only uploads before creating the copy', async t => {
+  const entry={type:'biweekly',eventId:'db-only',time:Date.parse('2026-09-15T16:00:00Z')/1000,amount:100001,ticketAmount:10,displayName:'Recovered'};
+  const f = await fixture(t,{loadCatchupEntries:async(now,windows)=>windows?[entry]:[]});
+  await f.start().archive();
+  assert.deepEqual(f.mutations,['append','archive','verify','clear']);
+  assert.equal(f.sheetRows[0][0],'db-only');
+  assert.deepEqual(f.completed,['db-only'],'confirmed source writes complete the durable export queue before reset');
+});
+
+test('failed prearchive Google replay neither completes queue entries nor copies or clears', async t => {
+  const entry={type:'biweekly',eventId:'retry',time:Date.parse('2026-09-15T16:00:00Z')/1000,amount:100001,ticketAmount:10,displayName:'Retry'};
+  const f = await fixture(t,{appendFailure:true,loadCatchupEntries:async()=>[entry,entry]});
+  await assert.rejects(f.start().archive(),/Google append failed/);
+  assert.deepEqual(f.completed,[]);
+  assert.deepEqual(f.mutations,[]);
+  assert.equal(f.state().pending.archiveId,null);
+});
 
 test('production clear empties both tabs and draw dates without archiving or changing database state', async t => {
   const f = await fixture(t);
@@ -158,7 +224,7 @@ test('hold blocks clear and exports but archive bypasses hold and rebuilds both 
 
 test('failed catchup remains durable and retries without clearing again', async t => {
   let failed = true, replays = 0;
-  const f = await fixture(t, { loadCatchupEntries: async () => { replays++; if (failed) throw new Error('database unavailable'); return []; } });
+  const f = await fixture(t, { loadCatchupEntries: async (now, windows) => { if (windows) return []; replays++; if (failed) throw new Error('database unavailable'); return []; } });
   await assert.rejects(f.start().run(() => assert.fail('no export')), /database unavailable/);
   assert.equal(f.state().catchupRequired, true);
   assert.equal(f.state().completedArchives?.length || 0, 0);
@@ -208,7 +274,7 @@ test('production archive outside hold copies immediately without advancing sched
   assert.deepEqual(f.mutations, ['archive', 'verify', 'clear']);
   assert.deepEqual(f.state().windows, before);
   assert.deepEqual(f.state().lastClosedSalesEnd, {});
-  assert.equal(replays, 1);
+  assert.equal(replays, 2);
 });
 
 test('runtime verifies archive before clearing both tabs in original spreadsheet, then exports', async t => {
