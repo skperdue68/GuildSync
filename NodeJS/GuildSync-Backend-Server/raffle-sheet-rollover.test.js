@@ -32,6 +32,7 @@ function fixture(deadlines = [100, 100]) {
     },
   });
   io.state = () => structuredClone(state);
+  io.restore = value => { state = structuredClone(value); };
   return io;
 }
 
@@ -185,4 +186,50 @@ test('shared cutoff waits for the latest closing draw plus delay', async () => {
   assert.equal(io.state().pending.readyAt, 135);
   io.time = 134; await io.engine().tick(); assert.equal(io.copies.length, 0);
   io.time = 135; await io.engine().tick(); assert.equal(io.copies.length, 1);
+});
+
+
+async function legacyPending(options = {}) {
+  const io = fixture(); io.delaySeconds = 40;
+  const windows = io.getWindows;
+  io.getWindows = time => windows(time).map(w => ({...w,drawTime:w.salesEnd + 20}));
+  await io.engine().tick(); io.time = 100; await io.engine().tick();
+  const state = io.state();
+  delete state.pending.deadlineBasis;
+  state.pending.readyAt = 140;
+  Object.assign(state.pending, options);
+  io.restore(state);
+  return io;
+}
+
+test('legacy unstarted automatic job migrates saved delay to draw exactly once across restarts', async () => {
+  const io = await legacyPending(); io.delaySeconds = 80; io.time = 140;
+  await io.engine().tick();
+  assert.equal(io.copies.length, 0);
+  assert.equal(io.state().pending.readyAt, 160);
+  assert.equal(io.state().pending.deadlineBasis, 'draw');
+  io.time = 159; await io.engine().tick();
+  assert.equal(io.state().pending.readyAt, 160); assert.equal(io.copies.length, 0);
+  io.time = 160; await io.engine().tick(); assert.equal(io.copies.length, 1);
+});
+
+test('migration save failure prevents an early archive and retries safely', async () => {
+  const io = await legacyPending(); io.time = 140; io.failSave = io.saves + 1;
+  await assert.rejects(io.engine().tick(), /save failed/);
+  assert.equal(io.copies.length, 0); assert.equal(io.state().pending.readyAt, 140);
+  await io.engine().tick(); assert.equal(io.state().pending.readyAt, 160);
+});
+
+for (const [name, options] of [['copied', {archiveId:'existing-copy'}], ['undated', {readyAt:undefined}], ['manual', {manual:true}]]) {
+  test('migration leaves ' + name + ' pending recovery unchanged', async () => {
+    const io = await legacyPending(options); io.time = 140;
+    await io.engine().tick();
+    assert.equal(io.clears.length, 1);
+    assert.equal(io.copies.length, name === 'copied' ? 0 : 1);
+  });
+}
+
+test('manual override bypasses migrated automatic hold', async () => {
+  const io = await legacyPending(); io.time = 140;
+  await io.engine().tick({archiveNow:true}); assert.equal(io.copies.length, 1);
 });
