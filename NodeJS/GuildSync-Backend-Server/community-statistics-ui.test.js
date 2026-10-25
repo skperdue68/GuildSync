@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createCommunityStatisticsPanel,renderCommunityStatistics} from './web/src/community-statistics.js';
 
+test('membership details display browser-local date and zone, preserving and escaping other text',()=>{
+ const timestamp='2026-10-24T16:45:10.000Z';
+ const local=new Date(timestamp).toLocaleString(undefined,{timeZoneName:'short'});
+ const html=renderCommunityStatistics({highlights:[{id:'newest-member',unit:'days',rows:[{name:'Member',value:1,detail:'Latest recorded join: '+timestamp},{name:'Other',value:2,detail:'<script>invalid date</script>'}]}]});
+ assert.ok(html.includes(local));assert.ok(!html.includes(timestamp));
+ assert.match(html,/1 <small>day<\/small>/);assert.match(html,/2 <small>days<\/small>/);
+ assert.match(html,/&lt;script&gt;invalid date&lt;\/script&gt;/);
+});
+
+test('known membership and activity cards label their counts and explain the terms',()=>{
+ const html=renderCommunityStatistics({highlights:[{id:'guild-joins',unit:'events',rows:[{name:'A',value:2}]},{id:'guild-leaves',unit:'events',rows:[{name:'B',value:1}]},{id:'discord-busiest',unit:'actions',rows:[{name:'C',value:3}]}]});
+ assert.match(html,/2 <small>joins<\/small>/);assert.match(html,/1 <small>departure<\/small>/);
+ assert.match(html,/3 <small>posts \+ reactions<\/small>/);assert.match(html,/Posts are new messages/);
+ assert.match(html,/reactions are emoji/);assert.match(html,/button clicks/);
+});
+
 test('highlights handle empty results and escape every server-provided text field',()=>{
  assert.match(renderCommunityStatistics({overview:[],highlights:[],notes:[]}),/No community statistics/);
  const html=renderCommunityStatistics({overview:[{label:'<total>',value:1200}],highlights:[{title:'<leaders>',description:'<coverage>',unit:'<days>',rows:[{name:'<Alice>',value:10,detail:'<tie>'},{name:'Bob',value:10}]}],notes:['<note>']});

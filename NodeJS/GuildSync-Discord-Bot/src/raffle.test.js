@@ -210,3 +210,28 @@ test('groups simultaneous reminders by purpose and puts them before freshness li
 });
 
 test('changing announcement channel reconciles pending delivery in original channel first',async()=>{const {createRaffleAnnouncer}=await import('./raffle.js');let state={channelId:'old',raffles:{},pending:{id:'job',createdAt:100,snapshot:{raffles:[]},next:{channelId:'old',raffles:{}}}};let destination;const a=createRaffleAnnouncer({channelId:'new',intervalHours:48,thresholds:{biweekly:1,monthly:1},loadState:async()=>state,saveState:async s=>state=s,fetchRaffles:async()=>{throw Error('must reconcile first');},send:async(s,d)=>destination=d.channelId});await a.tick();assert.equal(destination,'old');assert.equal(state.channelId,'old');});
+
+
+test('two-hour sales warning uses sales cutoff when draw is one hour later', async () => {
+  const {createRaffleAnnouncer, formatRaffles} = await import('./raffle.js');
+  for (const type of ['biweekly', 'monthly']) {
+    const f = reminderFixture({salesCloseReminderHours:[2]});
+    Object.assign(f.raffle, {type, id:type+':1', bonusEnabled:false, drawTime:23600});
+    const announcer = createRaffleAnnouncer(f.options);
+    await announcer.tick();
+    f.at(12799); await announcer.tick(); assert.equal(f.sent.length,1);
+    f.at(12800); await announcer.tick(); assert.equal(f.sent.length,2);
+    assert.ok(f.sent[1].reminders.every(r => r.at === 20000));
+    assert.match(formatRaffles(f.sent[1]), /Ticket sales close at <t:20000:F>/);
+    f.at(16400); await announcer.tick(); assert.equal(f.sent.length,2);
+    await createRaffleAnnouncer(f.options).tick(); assert.equal(f.sent.length,2);
+  }
+});
+
+test('startup one hour before cutoff catches up a two-hour sales warning', async () => {
+  const {createRaffleAnnouncer} = await import('./raffle.js');
+  const f = reminderFixture({salesCloseReminderHours:[2]});
+  Object.assign(f.raffle,{bonusEnabled:false,drawTime:23600});
+  f.at(16400); await createRaffleAnnouncer(f.options).tick();
+  assert.equal(f.sent.length,1); assert.equal(f.sent[0].reminders[0].at,20000);
+});

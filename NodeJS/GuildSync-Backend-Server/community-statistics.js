@@ -10,19 +10,27 @@ export async function initializeCommunityStatisticsSchema(db){
  await db.query(`INSERT IGNORE INTO guildsync_community_statistics_metadata (metadata_key,metadata_value) VALUES ('discord_activity_since', DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H:%i:%sZ'))`);
 }
 export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),trackingSince=null,roster=[],rosterEvents=[],discordMembers=[],discordHistory=[],activity=[],banking=[],windows=[]}={}){
- const highlights=[];const add=(id,title,description,unit,rows)=>highlights.push({id,title,description,unit,rows});
- for(const [event,suffix] of [['joined','joins'],['left','leaves']])add('guild-'+suffix,'Most recorded guild '+suffix,'Recorded ESO roster events; departures include left and kicked. History may be incomplete.','events',leaders(rosterEvents.filter(r=>r.event_type===event||(event==='left'&&r.event_type==='kicked')),r=>r.account_name,()=>1));
- for(const [event,suffix] of [['joined_server','joins'],['left_server','leaves']])add('discord-'+suffix,'Most recorded Discord '+suffix,'Live history entries only; bulk snapshots excluded. First discovery during an update can be recorded as a join.','events',leaders(discordHistory.filter(r=>r.event_type===event&&r.source==='live_event'),r=>r.discord_id,()=>1));
+ const highlights=[];
+ const membershipIds=new Set(['guild-joins','discord-joins']);
+ const add=(id,title,description,unit,rows)=>{
+   const card={id,title,description,unit,rows};
+   // Keep the two membership sources at the end as other highlights are added.
+   const membershipIndex=highlights.findIndex(item=>membershipIds.has(item.id));
+   if(!membershipIds.has(id)&&membershipIndex>=0)highlights.splice(membershipIndex,0,card);
+   else highlights.push(card);
+ };
+ add('guild-joins','ESO guild: most recorded joins','Recorded ESO guild join events. Rejoins count again; retained history may be incomplete.','joins',leaders(rosterEvents.filter(r=>r.event_type==='joined'),r=>r.account_name,()=>1));
+ add('discord-joins','Discord server: most recorded joins','Live Discord server join records only; bulk imports excluded. First discovery during an update can appear as a join.','joins',leaders(discordHistory.filter(r=>r.event_type==='joined_server'&&r.source==='live_event'),r=>r.discord_id,()=>1));
  // A roster snapshot timestamp can be the import date. Only an actual recorded join establishes tenure.
  const current=roster.filter(r=>Number(r.in_roster)===1);const tenure=current.flatMap(r=>{const joins=rosterEvents.filter(e=>e.account_name.toLowerCase()===r.account_name.toLowerCase()&&e.event_type==='joined').map(e=>Number(e.event_timestamp)).filter(t=>t>0&&t<=now);if(!joins.length)return [];const joined=Math.max(...joins);const departed=rosterEvents.some(e=>String(e.account_name).toLowerCase()===r.account_name.toLowerCase()&&['left','kicked'].includes(e.event_type)&&Number(e.event_timestamp)>=joined&&Number(e.event_timestamp)<=now);if(departed)return [];return [{name:r.account_name,value:Math.floor((now-joined)/86400),detail:'Latest recorded join: '+new Date(joined*1000).toISOString()}];});
  const missingJoins=current.filter(r=>!rosterEvents.some(e=>String(e.account_name).toLowerCase()===String(r.account_name).toLowerCase()&&e.event_type==='joined'&&Number(e.event_timestamp)>0&&Number(e.event_timestamp)<=now)).length;
  const joinCoverage=`${missingJoins} of ${current.length} current members have no recorded join date. Import dates are excluded.`;
  add('longest-member','Longest membership with a known join date','Days since the latest recorded join. '+joinCoverage,'days',[...tenure].sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name)).slice(0,5));
  add('newest-member','Newest recorded current members','Current ESO members with a recorded join. '+joinCoverage,'days',[...tenure].sort((a,b)=>a.value-b.value||b.detail.localeCompare(a.detail)||a.name.localeCompare(b.name)).slice(0,5));
- const recordedActivity=activity.filter(r=>['post','reaction'].includes(r.activity_type));
- add('discord-busiest','Busiest Discord Users','Recorded posts plus emoji reactions given since activity tracking began. Bots excluded; offline or missed events are not backfilled.','actions',leaders(recordedActivity,r=>r.discord_id,r=>positive(r.activity_count)));
- add('discord-posts','Most Posts','New Discord posts recorded since activity tracking began; bots and system messages excluded.','posts',leaders(recordedActivity.filter(r=>r.activity_type==='post'),r=>r.discord_id,r=>positive(r.activity_count)));
- add('discord-reactions','Most Reactions Given','Emoji reactions given, including likes. Each member/message/emoji counts once; removing a reaction does not subtract it.','reactions',leaders(recordedActivity.filter(r=>r.activity_type==='reaction'),r=>r.discord_id,r=>positive(r.activity_count)));
+ const recordedActivity=activity.filter(r=>['post','reaction'].includes(r.activity_type)&&Number(r.activity_timestamp)>=now-30*86400&&Number(r.activity_timestamp)<=now);
+ add('discord-busiest','Busiest Discord Users','Recorded posts plus emoji reactions given in the last 30 days. Bots excluded; offline or missed events are not backfilled.','actions',leaders(recordedActivity,r=>r.discord_id,r=>positive(r.activity_count)));
+ add('discord-posts','Most Posts','New Discord posts recorded in the last 30 days; bots and system messages excluded.','posts',leaders(recordedActivity.filter(r=>r.activity_type==='post'),r=>r.discord_id,r=>positive(r.activity_count)));
+ add('discord-reactions','Most Reactions Given','Emoji reactions given in the last 30 days, including likes. Each member/message/emoji counts once; removing a reaction does not subtract it.','reactions',leaders(recordedActivity.filter(r=>r.activity_type==='reaction'),r=>r.discord_id,r=>positive(r.activity_count)));
  const purchases=banking.filter(r=>typeOf(r.type)&&positive(r.purchasedTickets)>0&&Number(r.time)>0&&Number(r.time)<=now).map(r=>({...r,account_name:r.displayName}));
  for(const w of windows){const rows=purchases.filter(r=>typeOf(r.type)===w.type&&Number(r.time)>=w.salesStart&&Number(r.time)<=w.salesEnd);add('tickets-'+w.type,'Current '+(w.type==='monthly'?'50/50':'Bi-weekly')+' ticket purchasers','Purchased tickets only; bonus tickets excluded.','tickets',leaders(rows,r=>r.displayName,r=>positive(r.purchasedTickets)));}
  const spending=r=>{const n=positive(r.amount),digit=Math.trunc(n)%10;return [1,3].includes(digit)&&n>digit?n-digit:n;};
@@ -35,7 +43,7 @@ export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),tracki
   overview:[
    {label:'Current ESO members',value:current.length},
    {label:'Current Discord members',value:discordMembers.length},
-   {label:'Recorded Discord activity',value:recordedActivity.reduce((n,r)=>n+positive(r.activity_count),0)},
+   {label:'Discord activity (last 30 days)',value:recordedActivity.reduce((n,r)=>n+positive(r.activity_count),0)},
    {label:'Raffle spending (last 90 days, gold)',value:recentPurchases.reduce((n,r)=>n+spending(r),0)}
   ],
   highlights
@@ -63,14 +71,16 @@ export function registerCommunityStatisticsSocket(socket, {
       const [roster, rosterEvents, discordMembers, discordHistory] = await Promise.all(
         selections.map(async selection => (await db.execute(`SELECT ${selection}`))[0])
       );
+      const time = now();
       const [activity] = await db.execute(`
-        SELECT discord_id, activity_type, MAX(display_name) AS username, COUNT(*) AS activity_count
-        FROM guildsync_discord_activity GROUP BY discord_id, activity_type
-      `);
+        SELECT discord_id, activity_type, MAX(display_name) AS username, COUNT(*) AS activity_count, UNIX_TIMESTAMP(recorded_at) AS activity_timestamp
+        FROM guildsync_discord_activity
+        WHERE recorded_at >= FROM_UNIXTIME(?) AND recorded_at <= FROM_UNIXTIME(?)
+        GROUP BY discord_id, activity_type, recorded_at
+      `, [time - 30*86400, time]);
       const [meta] = await db.execute(`
         SELECT metadata_value FROM guildsync_community_statistics_metadata WHERE metadata_key = 'discord_activity_since'
       `);
-      const time = now();
       const [banking, windows] = await Promise.all([loadBanking(db), loadWindows(db, time)]);
       reply({ok: true, report: buildCommunityStatistics({
         now: time, trackingSince: meta[0]?.metadata_value || null,
