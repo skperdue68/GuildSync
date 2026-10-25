@@ -2106,8 +2106,7 @@ export function getRaffleRefreshSelection(date, now = Math.floor(Date.now() / 10
   return { asOf: now, lookupAt, timeZone: 'America/New_York', raffles, boundaryTypes, ...(dateNormalization ? { dateNormalization } : {}) };
 }
 
-export function selectSheetsCatchupEntries(entries, now = Math.floor(Date.now() / 1000)) {
-  const windows = getSheetsRaffleWindows(now);
+export function selectSheetsCatchupEntries(entries, now = Math.floor(Date.now() / 1000), windows = getSheetsRaffleWindows(now)) {
   return entries.filter(entry => {
     const period = getAssociateTicketReportRaffleWindow(entry);
     return Number(entry.time) <= now && period && windows.some(window => window.type === period.type && window.salesEnd === period.salesEnd);

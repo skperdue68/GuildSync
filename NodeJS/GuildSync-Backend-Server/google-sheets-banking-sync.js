@@ -84,9 +84,9 @@ export function configureSheetsCoordinator(run) { coordinate = run; }
 export function coordinateSpreadsheetOperation(operation) { return coordinate(operation, { processRollover: false }); }
 
 // Called only by rollover while it already holds the export lock; never re-enter the queue.
-export async function replayBankingEntries(entries, state, log = exportLog) {
+export async function replayBankingEntries(entries, state, log = exportLog, { onCompleted = async () => {} } = {}) {
   if (!entries.length) return { synced: 0 };
-  return writeEntries(entries, '', state, log);
+  return writeEntries(entries, '', state, log, { onCompleted });
 }
 
 function tabFor(type, settings) { return type === 'biweekly' ? settings.biweeklyTab : type === 'monthly' ? settings.fiftyFiftyTab : ''; }

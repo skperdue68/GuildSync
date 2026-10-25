@@ -82,7 +82,7 @@ export function createRollover({ loadState, saveState, getWindows, archive, rese
         if (!archiveNow && job.readyAt != null && timestamp < job.readyAt) return state;
         archiveNow = false;
         if (!job.archiveId) {
-          const archived = await archive({ key: job.key, name: job.name, raffles: structuredClone(job.raffles) });
+          const archived = await archive({ key: job.key, name: job.name, raffles: structuredClone(job.raffles), windows: structuredClone(state.windows) });
           const archiveId = typeof archived === 'string' ? archived : archived?.archiveId;
           if (typeof archived === 'object' && archived.name) job.name = archived.name;
           if (typeof archived === 'object') job.replacedArchiveIds = archived.replacedArchiveIds || [];

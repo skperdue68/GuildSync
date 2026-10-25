@@ -5,6 +5,7 @@ import { resetRequests, drawDateRequest } from './raffle-sheet-layout.js';
 import { createHash } from 'node:crypto';
 import { requestArchive } from './apps-script-archive.js';
 import { createRollover } from './raffle-sheet-rollover.js';
+import { createSheetsExportStore } from './sheets-export-queue.js';
 import { config, googleContext, sheetsRequest, configureSheetsCoordinator, replayBankingEntries, exportLog } from './google-sheets-banking-sync.js';
 
 const MARKER = 'guildsync_last_rollover';
@@ -38,7 +39,14 @@ export function startSheetsRollover(db, getWindows, { now, schedule = true, load
       state.tabs = [settings.biweeklyTab, settings.fiftyFiftyTab];
       await connection.execute('INSERT INTO guildsync_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [stateKey, JSON.stringify(state)]);
     },
-    archive: async ({ key, name }) => {
+    archive: async ({ key, name, windows }) => {
+      // Recover deposits uploaded during the hold before freezing the source copy.
+      // Use persisted source periods: wall-clock windows already advanced at cutoff.
+      if (!loadCatchupEntries) throw new Error('Prearchive catchup loader is unavailable; archive remains paused.');
+      const entries = await loadCatchupEntries(Math.floor(now ? now() : Date.now() / 1000), windows);
+      await replayBankingEntries(entries, { windows }, exportLog, {
+        onCompleted: ids => createSheetsExportStore(connection).completed(ids, settings.spreadsheetId)
+      });
       const archive = await requestArchive('archive', { sourceId: settings.spreadsheetId, key: hash + ':' + key, name,
         biweeklyTab: settings.biweeklyTab, fiftyFiftyTab: settings.fiftyFiftyTab, details: true });
       await exportLog("Archiving as '" + archive.name + "'");
@@ -94,7 +102,8 @@ export function startSheetsRollover(db, getWindows, { now, schedule = true, load
         const advance = (enabled && processRollover) || archiveNow || (processRollover && savedState?.pending?.manual);
         const due = savedState?.pending || savedState?.windows?.some(window => window.salesEnd <= Math.floor(now ? now() : Date.now() / 1000));
         const state = advance ? await coordinator.tick({ requestedBy, archiveNow: archiveNow && (!savedState?.catchupRequired || !!due) }) : (savedState || {});
-        if (state.pending || (!processRollover && !archiveNow && state.catchupRequired) || (!processRollover && enabled && state.windows?.some(window => window.salesEnd <= Math.floor(now ? now() : Date.now() / 1000)))) {
+        const awaitingCopy = ordinaryWrite && state.pending && !state.pending.archiveId;
+        if ((state.pending && !awaitingCopy) || (!processRollover && !archiveNow && state.catchupRequired) || (!processRollover && enabled && state.windows?.some(window => window.salesEnd <= Math.floor(now ? now() : Date.now() / 1000)))) {
           throw new Error('Spreadsheet writes are on hold until delayed archive/reset completes. Banking records remain in the database.');
         }
         if ((advance || processRollover) && state.catchupRequired) {

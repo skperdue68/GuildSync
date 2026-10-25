@@ -131,7 +131,7 @@ voiceIdentityService=createVoiceIdentityService(loginDB,{secret:GUILDSYNC_JWT_SE
   await configurationService.initialize();
   sheetsRuntime = startSheetsRollover(applicationDB, getSheetsRaffleWindows, {
     selectPeriods: getRaffleRefreshSelection,
-    loadCatchupEntries: async now => selectSheetsCatchupEntries(await getBankingDataJSON(applicationDB), now)
+    loadCatchupEntries: async (now, windows) => selectSheetsCatchupEntries(await getBankingDataJSON(applicationDB), now, windows)
   });
   sheetsExportRecovery=startSheetsExportRecovery(applicationDB,{
     loadEntries:()=>getBankingDataJSON(applicationDB),
