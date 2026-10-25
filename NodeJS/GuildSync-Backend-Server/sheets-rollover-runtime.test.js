@@ -58,7 +58,7 @@ async function fixture(t, { appendFailure = false, copyFailure = false, uncertai
   Object.assign(process.env, env);
   const originalFetch = globalThis.fetch;
   const calls = [], mutations = [], markers = [], batches = [], completed = [];
-  let state = { version: 1, windows: [{ type: 'biweekly', salesEnd: 1000, drawTime: 2000 }, { type: 'monthly', salesEnd: 3000, drawTime: 4000 }], lastClosedSalesEnd: {}, pending: null };
+  let state = { version: 1, windows: [{ type: 'biweekly', salesEnd: 1000, drawTime: 1000 }, { type: 'monthly', salesEnd: 3000, drawTime: 4000 }], lastClosedSalesEnd: {}, pending: null };
   let copy, released = 0, failClear = uncertainClear;
   const sheetRows = [];
   const connection = {
