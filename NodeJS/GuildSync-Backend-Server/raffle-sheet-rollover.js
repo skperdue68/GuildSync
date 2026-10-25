@@ -53,20 +53,32 @@ export function createRollover({ loadState, saveState, getWindows, archive, rese
           if(!Number.isSafeInteger(holdDelay)||holdDelay<0)throw Error('Invalid rollover delay');
           state.pending = {
             key: manual ? `raffle-manual-${randomUUID()}` : `raffle-rollover-${cutoff}`, salesEnd: cutoff,
-            requestedBy: archiveNow ? requestedBy : undefined, manual, readyAt: manual ? timestamp : cutoff + holdDelay,
+            requestedBy: archiveNow ? requestedBy : undefined, manual, readyAt: manual ? timestamp : Math.max(...raffles.map(window => window.drawTime)) + holdDelay,
             name: archiveName(Math.min(...raffles.map((window) => window.drawTime))),
-            raffles, archiveId: null,
+            raffles, archiveId: null, ...(manual ? {} : { deadlineBasis: 'draw' }),
             nextWindows: state.windows.map((window) => !manual && window.salesEnd === cutoff
               ? following.find((next) => next.type === window.type) : window),
           };
           await saveState(structuredClone(state));
         }
         const job = state.pending;
+        // Rebase only holds that have not copied yet, retaining their saved delay.
+        // A durable basis marker prevents adding the draw offset on every restart.
+        if (!job.deadlineBasis && !job.manual && !job.archiveId && Number.isFinite(job.readyAt)) {
+          const savedDelay = job.readyAt - job.salesEnd;
+          if (!Number.isSafeInteger(savedDelay) || savedDelay < 0 || !job.raffles?.length ||
+              !job.raffles.every(raffle => Number.isSafeInteger(raffle.drawTime))) {
+            throw new Error('Invalid pending rollover deadline');
+          }
+          job.readyAt = Math.max(...job.raffles.map(raffle => raffle.drawTime)) + savedDelay;
+          job.deadlineBasis = 'draw';
+          await saveState(structuredClone(state));
+        }
         if (archiveNow && requestedBy && !job.requestedBy) {
           job.requestedBy = requestedBy;
           await saveState(structuredClone(state));
         }
-        // Legacy pending jobs have already begun; do not delay their recovery.
+        // Jobs without a deadline have already begun; do not delay their recovery.
         if (!archiveNow && job.readyAt != null && timestamp < job.readyAt) return state;
         archiveNow = false;
         if (!job.archiveId) {

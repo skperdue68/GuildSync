@@ -359,3 +359,12 @@ test('completed history replaces trashed archive references with the new archive
 test('live rollover delay applies to future holds without moving an existing deadline',async t=>{const f=await fixture(t);process.env.GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_DELAY_HOURS='4';const runtime=f.start();await assert.rejects(runtime.run(()=>{}),/hold/);assert.equal(f.state().pending.readyAt,15400);process.env.GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_DELAY_HOURS='8';await assert.rejects(runtime.run(()=>{}),/hold/);assert.equal(f.state().pending.readyAt,15400);runtime.stop();});
 
 test('ordinary upload queued behind a configuration disable skips both rollover and writes',async t=>{const f=await fixture(t);process.env.GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_ENABLED='false';const runtime=f.start();let entered,release;const started=new Promise(r=>entered=r);const active=runtime.run(async()=>{entered();await new Promise(r=>release=r);},{processRollover:false});await started;const applying=runtime.applyConfiguration(()=>{process.env.GUILDSYNC_GOOGLE_SHEETS_ENABLED='false';});const upload=syncBankingEntriesToGoogleSheets([{type:'biweekly',eventId:'queued',name:'Test',gold:500,ticketAmount:1}],{log:async()=>{}});release();await Promise.all([active,applying]);const result=await upload;assert.equal(result.synced,0);assert.equal(result.enabled,false);assert.deepEqual(f.calls,[]);assert.deepEqual(f.mutations,[]);runtime.stop();});
+
+
+test('zero-delay automatic rollover still holds exports until the draw', async t => {
+  const f = await fixture(t);
+  f.state().windows[0].drawTime = 2000;
+  await assert.rejects(f.start().run(() => assert.fail('must hold exports')), /hold/);
+  assert.equal(f.state().pending.readyAt, 2000);
+  assert.deepEqual(f.mutations, []);
+});
