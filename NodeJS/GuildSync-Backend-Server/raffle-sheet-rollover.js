@@ -53,7 +53,7 @@ export function createRollover({ loadState, saveState, getWindows, archive, rese
           if(!Number.isSafeInteger(holdDelay)||holdDelay<0)throw Error('Invalid rollover delay');
           state.pending = {
             key: manual ? `raffle-manual-${randomUUID()}` : `raffle-rollover-${cutoff}`, salesEnd: cutoff,
-            requestedBy: archiveNow ? requestedBy : undefined, manual, readyAt: manual ? timestamp : cutoff + holdDelay,
+            requestedBy: archiveNow ? requestedBy : undefined, manual, readyAt: manual ? timestamp : Math.max(...raffles.map(window => window.drawTime)) + holdDelay,
             name: archiveName(Math.min(...raffles.map((window) => window.drawTime))),
             raffles, archiveId: null,
             nextWindows: state.windows.map((window) => !manual && window.salesEnd === cutoff

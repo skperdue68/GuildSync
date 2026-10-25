@@ -8,7 +8,7 @@ function fixture(deadlines = [100, 100]) {
   io.getWindows = (time) => ['biweekly', 'monthly'].map((type, i) => {
     let cutoff = deadlines[i];
     while (cutoff < time) cutoff += 100;
-    return { type, salesEnd: cutoff, drawTime: Date.parse('2026-10-01T02:00:00Z') / 1000 };
+    return { type, salesEnd: cutoff, drawTime: cutoff };
   });
   io.engine = () => createRollover({
     delaySeconds: io.delaySeconds || 0,
@@ -78,11 +78,11 @@ test('on-demand archive outside hold preserves schedule and resumes same job aft
   assert.deepEqual(io.state().lastClosedSalesEnd, {});
 });
 
-test('same cutoff archives the whole spreadsheet once, names using Eastern draw date, then resets both tabs', async () => {
+test('same cutoff archives the whole spreadsheet once then resets both tabs', async () => {
   const io = fixture(); const engine = io.engine();
   await engine.tick(); io.time = 100; await engine.tick();
   assert.equal(io.copies.length, 1);
-  assert.equal(io.copies[0].name, '260930 raffle');
+  assert.equal(io.copies[0].name, '691231 raffle');
   assert.deepEqual(io.clears[0].raffles.map((r) => r.type), ['biweekly', 'monthly']);
   assert.deepEqual(io.state().lastClosedSalesEnd, { biweekly: 100, monthly: 100 });
   await engine.tick(); assert.equal(io.copies.length, 1);
@@ -146,4 +146,43 @@ test('tick waits for asynchronous completion logging', async () => {
   let logged = false;
   io.log = async () => { await new Promise(resolve => setTimeout(resolve, 10)); logged = true; };
   await io.engine().tick(); assert.equal(logged, true);
+});
+
+
+test('automatic archive waits until draw plus delay while sales remain closed', async () => {
+  const io = fixture([100, 150]); io.delaySeconds = 40;
+  const windows = io.getWindows;
+  io.getWindows = time => windows(time).map(w => ({ ...w, drawTime: w.salesEnd + 20 }));
+  await io.engine().tick();
+  io.time = 100; await io.engine().tick();
+  assert.equal(io.state().pending.readyAt, 160);
+  assert.equal(io.copies.length, 0);
+  io.time = 140; await io.engine().tick(); assert.equal(io.copies.length, 0);
+  io.delaySeconds = 0;
+  io.time = 159; await io.engine().tick(); assert.equal(io.copies.length, 0);
+  io.time = 160; await io.engine().tick();
+  assert.equal(io.copies.length, 1);
+  assert.equal(io.state().lastClosedSalesEnd.biweekly, 100);
+  assert.equal(io.state().pending.salesEnd, 150);
+});
+
+
+test('archive name uses Eastern draw date', async () => {
+  const io = fixture();
+  const draw = Date.parse('2026-10-01T02:00:00Z') / 1000;
+  io.getWindows = time => ['biweekly', 'monthly'].map(type => ({type, salesEnd: time + 100, drawTime: draw}));
+  await io.engine().tick();
+  await io.engine().tick({archiveNow: true});
+  assert.equal(io.copies[0].name, '260930 raffle');
+});
+
+
+test('shared cutoff waits for the latest closing draw plus delay', async () => {
+  const io = fixture(); io.delaySeconds = 10;
+  const windows = io.getWindows;
+  io.getWindows = time => windows(time).map((w, i) => ({...w, drawTime:w.salesEnd + 20 + i * 5}));
+  await io.engine().tick(); io.time = 100; await io.engine().tick();
+  assert.equal(io.state().pending.readyAt, 135);
+  io.time = 134; await io.engine().tick(); assert.equal(io.copies.length, 0);
+  io.time = 135; await io.engine().tick(); assert.equal(io.copies.length, 1);
 });
