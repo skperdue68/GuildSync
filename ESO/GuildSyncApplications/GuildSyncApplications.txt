@@ -1,6 +1,6 @@
 ## Title: GuildSyncApplications
 ## APIVersion: 101051
-## Version: 1.4.0
+## Version: 1.4.1
 ## Author: @evainefaye
 ## SavedVariables: GuildSyncApplications
 ## DependsOn: LibAddonMenu-2.0
