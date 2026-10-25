@@ -28,7 +28,18 @@ export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),tracki
  const spending=r=>{const n=positive(r.amount),digit=Math.trunc(n)%10;return [1,3].includes(digit)&&n>digit?n-digit:n;};
  const recentPurchases=purchases.filter(r=>Number(r.time)>=now-90*86400);
  add('raffle-spending','Raffle spending (last 90 days)','Recorded ticket purchases in the last 90 days across both raffles, excluding +1/+3 markers; retained banking history only.','gold',leaders(recentPurchases,r=>r.displayName,spending));
- return {generatedAt:new Date(now*1000).toISOString(),trackingSince,notes:['Membership and raffle history may be incomplete; these are recorded totals, not all-time claims.','Imported Discord snapshots are not actual joins. Live first discoveries can also appear as joins. Snapshot-only ESO dates are excluded; missing departures/rejoins can still affect recorded tenure.','Discord activity counts new posts and emoji reactions given in channels the bot can access; bots, DMs, system posts, and historical scans are excluded. Older last-seen values cannot reconstruct these totals.','Only event keys, guild/user IDs, display names, action type and collection time are stored; no message text or attachments. Activity records are retained until explicitly removed.'],overview:[{label:'Current ESO members',value:current.length},{label:'Current Discord members',value:discordMembers.length},{label:'Recorded Discord activity',value:recordedActivity.reduce((n,r)=>n+positive(r.activity_count),0)},{label:'Raffle spending (last 90 days, gold)',value:recentPurchases.reduce((n,r)=>n+spending(r),0)}],highlights};
+ return {
+  generatedAt:new Date(now*1000).toISOString(),
+  trackingSince,
+  notes:['Membership and raffle history may be incomplete; these are recorded totals, not all-time claims.','Imported Discord snapshots are not actual joins. Live first discoveries can also appear as joins. Snapshot-only ESO dates are excluded; missing departures/rejoins can still affect recorded tenure.','Discord activity counts new posts and emoji reactions given in channels the bot can access; bots, DMs, system posts, and historical scans are excluded. Older last-seen values cannot reconstruct these totals.','Only event keys, guild/user IDs, display names, action type and collection time are stored; no message text or attachments. Activity records are retained until explicitly removed.'],
+  overview:[
+   {label:'Current ESO members',value:current.length},
+   {label:'Current Discord members',value:discordMembers.length},
+   {label:'Recorded Discord activity',value:recordedActivity.reduce((n,r)=>n+positive(r.activity_count),0)},
+   {label:'Raffle spending (last 90 days, gold)',value:recentPurchases.reduce((n,r)=>n+spending(r),0)}
+  ],
+  highlights
+ };
 }
 export function registerCommunityStatisticsSocket(socket, {
   db, loadBanking, loadWindows = async () => [], authorizeViewer, now = () => Math.floor(Date.now() / 1000)
