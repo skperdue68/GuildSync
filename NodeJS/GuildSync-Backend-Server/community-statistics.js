@@ -34,7 +34,8 @@ export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),tracki
  const purchases=banking.filter(r=>typeOf(r.type)&&positive(r.purchasedTickets)>0&&Number(r.time)>0&&Number(r.time)<=now).map(r=>({...r,account_name:r.displayName}));
  for(const w of windows){const rows=purchases.filter(r=>typeOf(r.type)===w.type&&Number(r.time)>=w.salesStart&&Number(r.time)<=w.salesEnd);add('tickets-'+w.type,'Current '+(w.type==='monthly'?'50/50':'Bi-weekly')+' ticket purchasers','Purchased tickets only; bonus tickets excluded.','tickets',leaders(rows,r=>r.displayName,r=>positive(r.purchasedTickets)));}
  const spending=r=>{const n=positive(r.amount),digit=Math.trunc(n)%10;return [1,3].includes(digit)&&n>digit?n-digit:n;};
- add('raffle-spending','Lifetime recorded raffle spending','Recorded ticket purchases across both raffles, excluding +1/+3 markers; retained banking history only.','gold',leaders(purchases,r=>r.displayName,spending));
+ const recentPurchases=purchases.filter(r=>Number(r.time)>=now-90*86400);
+ add('raffle-spending','Raffle spending (last 90 days)','Recorded ticket purchases in the last 90 days across both raffles, excluding +1/+3 markers; retained banking history only.','gold',leaders(recentPurchases,r=>r.displayName,spending));
  return {
   generatedAt:new Date(now*1000).toISOString(),
   trackingSince,
@@ -43,7 +44,7 @@ export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),tracki
    {label:'Current ESO members',value:current.length},
    {label:'Current Discord members',value:discordMembers.length},
    {label:'Discord activity (last 30 days)',value:recordedActivity.reduce((n,r)=>n+positive(r.activity_count),0)},
-   {label:'Recorded raffle spending (gold)',value:purchases.reduce((n,r)=>n+spending(r),0)}
+   {label:'Raffle spending (last 90 days, gold)',value:recentPurchases.reduce((n,r)=>n+spending(r),0)}
   ],
   highlights
  };
