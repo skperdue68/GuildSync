@@ -14,6 +14,7 @@ test('automatic channel announcements include the latest recorded transaction an
   await sendRaffleAnnouncement(f.client, 'channel', 'guild', {
     ...snapshot, raffles: [{...snapshot.raffles[0], latestTransactionAt: 900}]
   }, {...delivery, reconcile: false});
+  assert.match(posted.content, /Not sure whether you have bought tickets\? Use \/tickets to view your purchases for the current raffles\./);
   assert.match(posted.content, /As of <t:1000:f>/);
   assert.match(posted.content, /Latest recorded transaction: <t:900:f>/);
   assert.match(posted.content, /GuildSync automation[^]*?may lag behind actual deposit data/);
@@ -27,12 +28,12 @@ function fixture(messages) {
   return { client, channel, sends: () => sends };
 }
 test('restart reconciliation finds an already accepted announcement without sending again', async () => {
-  const f = fixture([{ author: { id: 'bot' }, content: formatRaffles(snapshot), createdTimestamp: 1000000 }]);
+  const f = fixture([{ author: { id: 'bot' }, content: formatRaffles(snapshot, { showTicketReminder: true }), createdTimestamp: 1000000 }]);
   await sendRaffleAnnouncement(f.client, 'channel', 'guild', snapshot, delivery);
   assert.equal(f.sends(), 0);
 });
 test('slash responses do not suppress announcements and history errors do not cause blind resends', async () => {
-  const f = fixture([{ author: { id: 'bot' }, content: formatRaffles(snapshot), createdTimestamp: 1000000, interactionMetadata: {} }]);
+  const f = fixture([{ author: { id: 'bot' }, content: formatRaffles(snapshot, { showTicketReminder: true }), createdTimestamp: 1000000, interactionMetadata: {} }]);
   await sendRaffleAnnouncement(f.client, 'channel', 'guild', snapshot, delivery);
   assert.equal(f.sends(), 1);
   f.channel.messages.fetch = async () => { throw new Error('history unavailable'); };
@@ -68,8 +69,8 @@ test('button-only archive reconciliation checks URLs as well as message text',as
 
 test('new and reconciled scheduled summaries clean previous public summaries without duplicate sends',async()=>{
  for(const reconcile of [false,true]) {
-  const order=[];const latest={id:'200',author:{id:'bot'},content:formatRaffles(snapshot),createdTimestamp:1000000};
-  const old={id:'100',author:{id:'bot'},content:formatRaffles(snapshot),createdTimestamp:1,delete:async()=>order.push('delete')};
+  const order=[];const latest={id:'200',author:{id:'bot'},content:formatRaffles(snapshot, { showTicketReminder: true }),createdTimestamp:1000000};
+  const old={id:'100',author:{id:'bot'},content:formatRaffles(snapshot, { showTicketReminder: true }),createdTimestamp:1,delete:async()=>order.push('delete')};
   const f=fixture([]);f.channel.messages.fetch=async()=>{order.push('scan');return new Collection([['200',latest],['100',old]]);};
   f.channel.send=async()=>{order.push('send');return latest;};
   await sendRaffleAnnouncement(f.client,'channel','guild',snapshot,{...delivery,reconcile},()=>{});

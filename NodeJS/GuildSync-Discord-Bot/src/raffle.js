@@ -16,7 +16,7 @@ export function requestActiveRaffles(socket, options = {}) {
     });
   });
 }
-export function formatRaffles(snapshot, { includeTickets = false, verifyName = '' } = {}) {
+export function formatRaffles(snapshot, { includeTickets = false, verifyName = '', showTicketReminder = false } = {}) {
   const number = value => Number(value || 0).toLocaleString('en-US');
   const latestTransaction = raffle => raffle.latestTransactionAt === null
     ? 'No transactions recorded for this raffle period.'
@@ -45,7 +45,7 @@ export function formatRaffles(snapshot, { includeTickets = false, verifyName = '
     `Tickets: ${number(raffle.totalTickets)}${raffle.bonusEnabled ? ` (includes ${number(raffle.bonusTickets || 0)} bonus; ${number(raffle.bonusPercent || 0)}% bonus expires <t:${raffle.bonusExpiresAt}:R>${raffle.nextBonusPercent ? `, then ${number(raffle.nextBonusPercent)}% until <t:${raffle.nextBonusExpiresAt}:R>` : ''})` : ''} · Draw: <t:${raffle.drawTime}:F>`,
     raffle.salesOpen ? `Ticket sales close <t:${raffle.salesEnd}:R>.` : 'Sales closed — awaiting the draw.',
     latestTransaction(raffle)
-  ].join('\n')), ...(includeTickets ? [formatUserTickets(snapshot, verifyName)] : [])].join('\n\n');
+  ].join('\n')), ...(includeTickets ? [formatUserTickets(snapshot, verifyName)] : []), ...(showTicketReminder && !includeTickets ? ['Not sure whether you have bought tickets? Use /tickets to view your purchases for the current raffles.'] : [])].join('\n\n');
 }
 
 export function parseReminderHours(value, fallback) {
@@ -162,7 +162,7 @@ export function createRaffleAnnouncer({ channelId, intervalHours, thresholds, fe
         }
         const prepared = { ...state, pending: { id: randomBytes(12).toString('hex'), createdAt: time,
           ...(reminders.length ? { expiresAt: Math.min(...reminders.map(item => item.at)) } : {}),
-          content:formatRaffles({ ...snapshot, ...(reminders.length ? { reminders } : {}) }),
+          content:formatRaffles({ ...snapshot, ...(reminders.length ? { reminders } : {}) }, { showTicketReminder: true }),
           snapshot: { ...snapshot, ...(reminders.length ? { reminders } : {}) }, next } };
         await saveState(prepared);
         state = prepared;
