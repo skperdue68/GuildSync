@@ -15,7 +15,7 @@ export async function sendRaffleAnnouncement(client, channelId, guildId, snapsho
   if (!channel.permissionsFor(client.user)?.has(PermissionFlagsBits.ReadMessageHistory)) {
     throw new Error('Raffle announcements require Read Message History to reconcile interrupted deliveries.');
   }
-  const content = delivery.content ?? formatRaffles(snapshot);
+  const content = delivery.content ?? formatRaffles(snapshot, { showTicketReminder: true });
   const renderedContent = fileLinkContent(content);
   const buttons = fileLinkButtons(content);
   const expectedUrls = buttons.flatMap(row => row.toJSON().components.map(button => button.url));

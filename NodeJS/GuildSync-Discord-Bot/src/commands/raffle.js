@@ -38,7 +38,7 @@ export async function execute(interaction, guildSyncSocket, log = Log, { include
     if (lookup.includeTickets) log('Raffle tickets lookup: ' + JSON.stringify({ ...lookup, mode: verify ? 'verify' : 'linked account' }));
     const snapshot = await requestActiveRaffles(guildSyncSocket, lookup);
     if (lookup.includeTickets) log('Raffle tickets response: ' + JSON.stringify({ asOf: snapshot.asOf, tickets: snapshot.tickets }));
-    const published = await interaction.editReply({ content: formatRaffles(snapshot, { includeTickets: showTickets || verify, verifyName }), allowedMentions: { parse: [] } });
+    const published = await interaction.editReply({ content: formatRaffles(snapshot, { includeTickets: showTickets || verify, verifyName, showTicketReminder: isPublic && !showTickets && !verify }), allowedMentions: { parse: [] } });
     if (isPublic && !showTickets && !verify) {
       await cleanupPublicRaffleSummaries(interaction.channel, published, interaction.client?.user?.id, log);
     }
