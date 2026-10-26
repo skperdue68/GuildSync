@@ -57,6 +57,7 @@ export function startRaffleAnnouncements(client, socket, log, env = process.env)
     announcer = createRaffleAnnouncer({
       channelId,
       intervalHours: Number(env.GUILDSYNC_RAFFLE_INTERVAL_HOURS || 48),
+      announceOnPurchase: String(env.GUILDSYNC_RAFFLE_ANNOUNCE_ON_PURCHASE || 'false').toLowerCase() === 'true',
       bonusReminderHours: parseReminderHours(env.GUILDSYNC_RAFFLE_BONUS_REMINDER_HOURS, [1]),
       salesCloseReminderHours: parseReminderHours(env.GUILDSYNC_RAFFLE_SALES_CLOSE_REMINDER_HOURS, [2]),
       thresholds: {
@@ -93,15 +94,23 @@ export function startRaffleAnnouncements(client, socket, log, env = process.env)
     log(`Raffle announcements disabled: ${error.message}`);
     return;
   }
-  let running=false,stopped=false;const drain=[];
+  let running=false,stopped=false,rerun=false;const drain=[];
   const tick = async () => {
-    if (stopped || running || !client.isReady() || !socket.connected) return;
+    if (stopped || !client.isReady() || !socket.connected) return;
+    if (running) { rerun=true;return; }
     running=true;
-    try { await announcer.tick(); } catch (error) { log(`Raffle announcement failed: ${error.message}`); }finally{running=false;for(const resolve of drain.splice(0))resolve();}
+    try {
+      do {
+        rerun=false;
+        try { await announcer.tick(); } catch (error) { log(`Raffle announcement failed: ${error.message}`); }
+      } while(rerun&&!stopped&&client.isReady()&&socket.connected);
+    } finally {running=false;for(const resolve of drain.splice(0))resolve();}
   };
   const timer = setInterval(tick, 5 * 60 * 1000);
   timer.unref();
   socket.on('connect', tick);
+  const purchasesEnabled=String(env.GUILDSYNC_RAFFLE_ANNOUNCE_ON_PURCHASE || 'false').toLowerCase()==='true';
+  if(purchasesEnabled)socket.on('guildsync:raffle-purchases-updated',tick);
   void tick();
-  return async () => { stopped=true;clearInterval(timer); socket.off('connect', tick);if(running)await new Promise(resolve=>drain.push(resolve)); };
+  return async () => { stopped=true;clearInterval(timer); socket.off('connect', tick);socket.off('guildsync:raffle-purchases-updated',tick);if(running)await new Promise(resolve=>drain.push(resolve)); };
 }

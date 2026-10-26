@@ -70,7 +70,7 @@ function formatUserTickets(snapshot, verifyName = '') {
 }
 
 export function createRaffleAnnouncer({ channelId, intervalHours, thresholds, fetchRaffles, send, loadState, saveState,
-  bonusReminderHours = [1], salesCloseReminderHours = [2],
+  bonusReminderHours = [1], salesCloseReminderHours = [2], announceOnPurchase = false,
   now = () => Math.floor(Date.now() / 1000) }) {
   bonusReminderHours = parseReminderHours(bonusReminderHours, [1]);
   salesCloseReminderHours = parseReminderHours(salesCloseReminderHours, [2]);
@@ -97,7 +97,11 @@ export function createRaffleAnnouncer({ channelId, intervalHours, thresholds, fe
             const { pending, ...remaining } = state;
             await saveState(remaining);
             state = remaining;
-          } else { await deliverPending(true); return; }
+          } else {
+            await deliverPending(true);
+            // A purchase wake may refer to data newer than the recovered delivery.
+            if (!announceOnPurchase) return;
+          }
         }
         if (state.channelId !== channelId) state = { channelId, raffles: {} };
         const snapshot = await fetchRaffles();
@@ -105,8 +109,9 @@ export function createRaffleAnnouncer({ channelId, intervalHours, thresholds, fe
         const due = snapshot.raffles.some(raffle => {
           const previous = state.raffles[raffle.type];
           const milestone = Math.floor(raffle.prizeGold / thresholds[raffle.type]);
-          return !previous || previous.id !== raffle.id || time - previous.lastPostedAt >= intervalHours * 3600 ||
-            milestone > previous.highWater;
+          return !previous || previous.id !== raffle.id || (announceOnPurchase
+            ? typeof raffle.purchaseRevision === 'string' && previous.purchaseRevision !== raffle.purchaseRevision
+            : time - previous.lastPostedAt >= intervalHours * 3600 || milestone > previous.highWater);
         });
         const reminders = [];
         for (const raffle of snapshot.raffles) {
@@ -145,8 +150,15 @@ export function createRaffleAnnouncer({ channelId, intervalHours, thresholds, fe
           next.raffles[raffle.type] = {
             id: raffle.id, lastPostedAt: time,
             highWater: Math.max(previous?.id === raffle.id ? previous.highWater : 0,
-              Math.floor(raffle.prizeGold / thresholds[raffle.type]))
+              Math.floor(raffle.prizeGold / thresholds[raffle.type])),
+            ...(typeof raffle.purchaseRevision === 'string' ? {purchaseRevision:raffle.purchaseRevision} : {})
           };
+        }
+        // A deadline-only reminder also displays the current purchase snapshot.
+        for (const raffle of snapshot.raffles) {
+          if (next.raffles[raffle.type] && typeof raffle.purchaseRevision === 'string') {
+            next.raffles[raffle.type] = {...next.raffles[raffle.type], purchaseRevision:raffle.purchaseRevision};
+          }
         }
         const prepared = { ...state, pending: { id: randomBytes(12).toString('hex'), createdAt: time,
           ...(reminders.length ? { expiresAt: Math.min(...reminders.map(item => item.at)) } : {}),
