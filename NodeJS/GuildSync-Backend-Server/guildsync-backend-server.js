@@ -2692,6 +2692,8 @@ async function broadcastBankingDataUpdate() {
       at: new Date().toLocaleString()
     });
 
+    // Wake only the authenticated bot room; it checks the purchase revision before posting.
+    io.to('GuildSyncDiscordBot').emit('guildsync:raffle-purchases-updated');
     Log(`Broadcast banking data update to GuildSync clients. Entries: ${entries.length}`);
   } catch (error) {
     Log('Failed to broadcast banking data update:', error);

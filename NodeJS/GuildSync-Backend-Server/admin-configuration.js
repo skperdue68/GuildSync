@@ -66,15 +66,19 @@ const configurationHelp={
  },
  "GUILDSYNC_RAFFLE_INTERVAL_HOURS": {
   "section": "Schedule and destination",
-  "help": "Hours between recurring raffle announcements while raffle sales are open."
+  "help": "Hours between recurring raffle announcements while raffle sales are open. Suspended while purchase-triggered updates are enabled; the saved interval resumes when that option is disabled."
+ },
+ "GUILDSYNC_RAFFLE_ANNOUNCE_ON_PURCHASE": {
+  "section": "Schedule and destination",
+  "help": "Updates public raffle values when recorded ticket purchases change. While enabled, recurring interval and prize milestone announcements are suspended; disabling restores those saved settings. Bonus and sales-closing deadline reminders remain separate."
  },
  "GUILDSYNC_RAFFLE_BIWEEKLY_THRESHOLD": {
   "section": "Prize milestones",
-  "help": "Gold interval used for Bi-Weekly raffle prize milestone announcements."
+  "help": "Gold interval used for Bi-Weekly raffle prize milestone announcements. Suspended while purchase-triggered updates are enabled; this saved threshold resumes when that option is disabled."
  },
  "GUILDSYNC_RAFFLE_MONTHLY_THRESHOLD": {
   "section": "Prize milestones",
-  "help": "Gold interval used for 50/50 raffle prize milestone announcements."
+  "help": "Gold interval used for 50/50 raffle prize milestone announcements. Suspended while purchase-triggered updates are enabled; this saved threshold resumes when that option is disabled."
  },
  "GUILDSYNC_RAFFLE_BONUS_REMINDER_HOURS": {
   "section": "Deadline reminders",
@@ -134,6 +138,7 @@ export const configurationCatalog=[
  raffle('ANNOUNCEMENTS_ENABLED','Enable raffle announcements','boolean',true),
  raffle('CHANNEL_ID','Raffle announcement channel ID','id',''),
  raffle('INTERVAL_HOURS','Announcement interval (hours)','number',48,{min:0.01,max:8760}),
+ raffle('ANNOUNCE_ON_PURCHASE','Update raffle values when ticket purchases are recorded','boolean',false),
  raffle('BIWEEKLY_THRESHOLD','Bi-Weekly prize milestone (gold)','number',200000,{min:1,max:1000000000000}),
  raffle('MONTHLY_THRESHOLD','50/50 prize milestone (gold)','number',500000,{min:1,max:1000000000000}),
  raffle('BONUS_REMINDER_HOURS','Bonus reminder lead hours (comma separated)','hours','1'),

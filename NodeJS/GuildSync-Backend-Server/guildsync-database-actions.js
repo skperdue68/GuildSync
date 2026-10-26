@@ -9,7 +9,7 @@ import { ARCHIVE_CELLS_SCHEMA } from './raffle-archive-cells.js';
 import { RAFFLE_RESULTS_SCHEMA, RAFFLE_FORMULAS_SCHEMA } from './raffle-results.js';
 import mysql from 'mysql2/promise';
 import { bankingSource } from './banking-source.js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { DEFAULT_BONUS_TIERS, parseBonusTiers, calculateRaffleBonus, selectRaffleBonusSettings } from './raffle-bonus.js';
 import { syncBankingEntriesToGoogleSheets, googleSheetsBankingConfig } from './google-sheets-banking-sync.js';
 
@@ -2156,6 +2156,10 @@ export async function getActiveRaffleSummary(applicationDB, now = Math.floor(Dat
       drawTime: salesEnd + BANKING_RAFFLE_AFTER_SALES_SECONDS,
       salesOpen: now < salesEnd, prizeGold,
       latestTransactionAt: rows.reduce((latest, entry) => Math.max(latest, Number(entry.time)), 0) || null,
+      purchaseRevision: createHash('sha256').update(JSON.stringify(rows
+        .filter(entry => Number(entry.purchasedTickets) > 0)
+        .map(entry => JSON.stringify([String(entry.eventId || ''), Number(entry.time), Number(entry.purchasedTickets), Number(entry.amount)]))
+        .sort())).digest('hex'),
       ...(type === 'biweekly' ? { drawCount: prizeGold / 200000, goldPerDraw: 200000 } : {}),
       totalTickets: rows.reduce((sum, entry) => sum + (Number(entry.totalTickets) || 0), 0),
       bonusEnabled: bonus.enabled,

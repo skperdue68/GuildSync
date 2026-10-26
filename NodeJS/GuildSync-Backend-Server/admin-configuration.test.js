@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createConfigurationService,configurationCatalog} from './admin-configuration.js';
 
+test('purchase announcement switch is grouped, defaults off, and restores configured .env default',async()=>{
+ const key='GUILDSYNC_RAFFLE_ANNOUNCE_ON_PURCHASE';
+ const catalog=configurationCatalog.find(item=>item.key===key);
+ assert.equal(catalog.defaultValue,false);assert.equal(catalog.type,'boolean');
+ assert.equal(catalog.section,'Schedule and destination');assert.match(catalog.help,/interval and prize milestone/);
+ const service=createConfigurationService(memoryDB(),{env:{}});await service.initialize();
+ await service.registerBotDefaults({[key]:'true'});
+ assert.equal(service.view().settings.find(item=>item.key===key).value,true);
+ await service.save({revision:0,changes:{[key]:false}});
+ assert.equal(service.view().settings.find(item=>item.key===key).value,false);
+ await service.save({revision:1,changes:{[key]:null}});
+ assert.equal(service.view().settings.find(item=>item.key===key).value,true);
+});
+
 test('voice role overrides accept names and IDs but reject empty list entries',async()=>{
  const service=createConfigurationService(memoryDB(),{env:{}});await service.initialize();
  const key='GUILDSYNC_VOICE_MUTE_ALLOWED_ROLE_IDS';
