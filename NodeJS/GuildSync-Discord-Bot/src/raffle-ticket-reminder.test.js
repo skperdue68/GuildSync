@@ -21,15 +21,15 @@ test('scheduled raffle summaries persist the ticket reminder', async () => {
   assert.ok(delivery.content.endsWith(reminder));
 });
 
-test('/raffle shows the reminder only for public summary replies', async () => {
-  for (const [isPublic, tickets, verify] of [[true, false, ''], [false, false, ''], [true, true, ''], [true, false, 'Example']]) {
+test('/raffle summaries include the reminder but ticket details and /tickets do not', async () => {
+  for (const [isPublic, tickets, verify, includeTickets = false] of [[true, false, ''], [false, false, ''], [true, true, ''], [false, true, ''], [true, false, 'Example'], [false, false, 'Example'], [false, false, '', true]]) {
     let reply;
     const interaction = { guildId: process.env.DISCORD_GUILD_ID || 'guild', user: { id: 'user' },
       member: { roles: { cache: { some: fn => fn({ name: 'Consigliere' }) } } },
       options: { getBoolean: name => name === 'public' ? isPublic : tickets, getString: () => verify },
       deferReply: async () => {}, editReply: async value => { reply = value; } };
     const socket = { connected: true, timeout() { return this; }, emit(_event, _payload, callback) { callback(null, snapshot); } };
-    await execute(interaction, socket, () => {});
-    assert.equal(reply.content.includes(reminder), isPublic && !tickets && !verify);
+    await execute(interaction, socket, () => {}, { includeTickets });
+    assert.equal(reply.content.includes(reminder), !tickets && !verify && !includeTickets);
   }
 });
