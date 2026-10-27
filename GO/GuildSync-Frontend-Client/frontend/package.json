@@ -12,5 +12,5 @@
     "dev": "vite",
     "preview": "vite preview"
   },
-  "version": "1.4.2"
+  "version": "1.4.3"
 }

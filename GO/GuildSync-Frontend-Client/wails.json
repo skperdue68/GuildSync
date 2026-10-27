@@ -9,7 +9,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:install": "npm install",
   "info": {
-    "productVersion": "1.4.2"
+    "productVersion": "1.4.3"
   },
   "name": "GuildSync",
   "outputfilename": "GuildSync"
