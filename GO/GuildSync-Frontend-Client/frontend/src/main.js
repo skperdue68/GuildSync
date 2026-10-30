@@ -1,3 +1,11 @@
+import {
+  biweeklySalesEndAtOrAfter as scheduledBiweeklySalesEndAtOrAfter,
+  monthlySalesEndAtOrAfter as scheduledMonthlySalesEndAtOrAfter,
+  previousMonthlySalesEnd as scheduledPreviousMonthlySalesEnd,
+  nextMonthlySalesEnd as scheduledNextMonthlySalesEnd,
+  shiftRaffleSalesEnd as scheduledShiftRaffleSalesEnd,
+  isLastRaffleInEasternMonth as scheduledIsLastRaffleInEasternMonth
+} from './raffle-schedule.js';
 import {createVoiceHotkeyController} from './voice-hotkey.js';
 import {canEditGuildSyncRole,canIngestGuildSyncRole,canManageGuildSyncLinksRole,canPerformGuildSyncEvent} from './role-permissions.js';
 import {renderRoleViewControls} from './role-view-controls.js';
@@ -254,10 +262,6 @@ let bankingRafflePeriodOffsets = {
   monthly: 0
 };
 
-const BANKING_BIWEEKLY_SALES_END_ANCHOR_UTC = 1780786800;
-const BANKING_MONTHLY_SALES_END_ANCHOR_UTC = 1781996400;
-const BANKING_BIWEEKLY_INTERVAL_SECONDS = 14 * 24 * 60 * 60;
-const BANKING_MONTHLY_INTERVAL_SECONDS = 28 * 24 * 60 * 60;
 const BANKING_RAFFLE_AFTER_SALES_SECONDS = 60 * 60;
 
 const GUILDSYNC_TABS = [
@@ -6584,31 +6588,20 @@ function getBankingRaffleWindow(section) {
     };
   }
 
-  const interval = BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  let salesEnd = getBankingBiweeklySalesEndAtOrAfter(now);
-
-  salesEnd += getBankingRafflePeriodOffset(section) * interval;
+  const salesEnd = scheduledShiftRaffleSalesEnd(
+    getBankingBiweeklySalesEndAtOrAfter(now),
+    getBankingRafflePeriodOffset(section)
+  );
 
   return {
-    salesStart: salesEnd - interval + 1,
+    salesStart: scheduledShiftRaffleSalesEnd(salesEnd, -1) + 1,
     salesEnd,
     raffleTime: salesEnd + BANKING_RAFFLE_AFTER_SALES_SECONDS
   };
 }
 
 function getBankingBiweeklySalesEndAtOrAfter(referenceTime) {
-  const interval = BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  let salesEnd = BANKING_BIWEEKLY_SALES_END_ANCHOR_UTC;
-
-  while (salesEnd - interval > referenceTime) {
-    salesEnd -= interval;
-  }
-
-  while (salesEnd < referenceTime) {
-    salesEnd += interval;
-  }
-
-  return salesEnd;
+  return scheduledBiweeklySalesEndAtOrAfter(referenceTime);
 }
 
 function getBankingMonthlySalesEndForOffset(referenceTime, offset = 0) {
@@ -6629,39 +6622,19 @@ function getBankingMonthlySalesEndForOffset(referenceTime, offset = 0) {
 }
 
 function getBankingMonthlySalesEndAtOrAfter(referenceTime) {
-  let salesEnd = getBankingBiweeklySalesEndAtOrAfter(referenceTime);
-
-  while (!isBankingLastRaffleSalesEndInEasternMonth(salesEnd)) {
-    salesEnd += BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  return salesEnd;
+  return scheduledMonthlySalesEndAtOrAfter(referenceTime);
 }
 
 function getBankingPreviousMonthlySalesEnd(currentSalesEnd) {
-  let salesEnd = currentSalesEnd - BANKING_BIWEEKLY_INTERVAL_SECONDS;
-
-  while (!isBankingLastRaffleSalesEndInEasternMonth(salesEnd)) {
-    salesEnd -= BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  return salesEnd;
+  return scheduledPreviousMonthlySalesEnd(currentSalesEnd);
 }
 
 function getBankingNextMonthlySalesEnd(currentSalesEnd) {
-  let salesEnd = currentSalesEnd + BANKING_BIWEEKLY_INTERVAL_SECONDS;
-
-  while (!isBankingLastRaffleSalesEndInEasternMonth(salesEnd)) {
-    salesEnd += BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  return salesEnd;
+  return scheduledNextMonthlySalesEnd(currentSalesEnd);
 }
 
 function isBankingLastRaffleSalesEndInEasternMonth(salesEnd) {
-  const raffleTimestamp = salesEnd + BANKING_RAFFLE_AFTER_SALES_SECONDS;
-  const nextRaffleTimestamp = salesEnd + BANKING_BIWEEKLY_INTERVAL_SECONDS + BANKING_RAFFLE_AFTER_SALES_SECONDS;
-  return getBankingEasternMonthKey(raffleTimestamp) !== getBankingEasternMonthKey(nextRaffleTimestamp);
+  return scheduledIsLastRaffleInEasternMonth(salesEnd);
 }
 
 function getBankingEasternMonthKey(timestamp) {

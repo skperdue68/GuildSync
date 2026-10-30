@@ -1,3 +1,4 @@
+import {biweeklySalesEndAtOrAfter, monthlySalesEndAtOrAfter, previousMonthlySalesEnd, shiftRaffleSalesEnd, normalizeScheduledSalesEnd} from './raffle-schedule.js';
 import {initializeCommunityStatisticsSchema} from './community-statistics.js';
 import {initializeSheetsExportQueue, enqueueSheetsExports, createSheetsExportStore} from './sheets-export-queue.js';
 import { notifyDiscordConfirmedLink } from './discord-onboarding.js';
@@ -56,10 +57,6 @@ function formatDepositMailAmount(value) {
 }
 
 
-const BANKING_BIWEEKLY_SALES_END_ANCHOR_UTC = 1780786800;
-const BANKING_MONTHLY_SALES_END_ANCHOR_UTC = 1781996400;
-const BANKING_BIWEEKLY_INTERVAL_SECONDS = 14 * 24 * 60 * 60;
-const BANKING_MONTHLY_INTERVAL_SECONDS = 28 * 24 * 60 * 60;
 const BANKING_RAFFLE_AFTER_SALES_SECONDS = 60 * 60;
 
 function normalizeDepositMailTicketType(value) {
@@ -126,47 +123,11 @@ function getDepositMailRaffleTimestamp(row = {}) {
 }
 
 function getDepositMailBiweeklySalesEndAtOrAfter(referenceTime) {
-  let salesEnd = BANKING_BIWEEKLY_SALES_END_ANCHOR_UTC;
-
-  while (salesEnd - BANKING_BIWEEKLY_INTERVAL_SECONDS > referenceTime) {
-    salesEnd -= BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  while (salesEnd < referenceTime) {
-    salesEnd += BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  return salesEnd;
+  return biweeklySalesEndAtOrAfter(referenceTime);
 }
 
 function getDepositMailMonthlySalesEndAtOrAfter(referenceTime) {
-  let salesEnd = getDepositMailBiweeklySalesEndAtOrAfter(referenceTime);
-
-  while (!isDepositMailLastRaffleSalesEndInEasternMonth(salesEnd)) {
-    salesEnd += BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  return salesEnd;
-}
-
-function isDepositMailLastRaffleSalesEndInEasternMonth(salesEnd) {
-  const raffleTimestamp = salesEnd + BANKING_RAFFLE_AFTER_SALES_SECONDS;
-  const nextRaffleTimestamp = salesEnd + BANKING_BIWEEKLY_INTERVAL_SECONDS + BANKING_RAFFLE_AFTER_SALES_SECONDS;
-  return getDepositMailEasternMonthKey(raffleTimestamp) !== getDepositMailEasternMonthKey(nextRaffleTimestamp);
-}
-
-function getDepositMailEasternMonthKey(timestamp) {
-  const date = new Date(Number(timestamp || 0) * 1000);
-  if (Number.isNaN(date.getTime())) return '';
-
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit'
-  }).formatToParts(date);
-  const year = parts.find((part) => part.type === 'year')?.value || '';
-  const month = parts.find((part) => part.type === 'month')?.value || '';
-  return `${year}-${month}`;
+  return monthlySalesEndAtOrAfter(referenceTime);
 }
 
 function getDepositMailRaffleDateTimeEastern(row = {}) {
@@ -1942,10 +1903,18 @@ export async function getRaffleBonusVersions(applicationDB) {
 export async function getRaffleBonusOverrides(applicationDB) {
   const [rows] = await applicationDB.execute(
     'SELECT raffle_type, sales_end, enabled, tiers_json FROM guildsync_raffle_bonus_overrides');
-  return rows.map((row) => ({
-    type: row.raffle_type, salesEnd: Number(row.sales_end), enabled: Boolean(Number(row.enabled)),
-    tiers: typeof row.tiers_json === 'string' ? JSON.parse(row.tiers_json) : row.tiers_json
-  }));
+  const overrides = new Map();
+  for (const row of rows) {
+    const original = Number(row.sales_end);
+    const salesEnd = normalizeScheduledSalesEnd(original);
+    const key = `${row.raffle_type}:${salesEnd}`;
+    // Preserve old saved settings, but a setting saved with the corrected key wins.
+    if (!overrides.has(key) || original === salesEnd) overrides.set(key, {
+      type:row.raffle_type, salesEnd, enabled:Boolean(Number(row.enabled)),
+      tiers:typeof row.tiers_json === 'string' ? JSON.parse(row.tiers_json) : row.tiers_json
+    });
+  }
+  return [...overrides.values()];
 }
 
 export async function getRaffleBonusChoices(applicationDB, versions = null, overrides = null) {
@@ -1975,10 +1944,15 @@ export async function getRaffleBonusChoices(applicationDB, versions = null, over
 
 export async function saveRaffleBonusOverride(applicationDB, input) {
   const type = input?.raffleType;
-  const salesEnd = Number(input?.salesEnd);
+  const salesEnd = normalizeScheduledSalesEnd(Number(input?.salesEnd));
   if(input?.resetToDefaults === true){
     if(!['monthly','biweekly'].includes(type)||!Number.isSafeInteger(salesEnd)||salesEnd<=0)throw Error('Select a valid raffle.');
-    await applicationDB.execute('DELETE FROM guildsync_raffle_bonus_overrides WHERE raffle_type = ? AND sales_end = ?',[type,salesEnd]);
+    const legacy = salesEnd - 3600;
+    if (normalizeScheduledSalesEnd(legacy) === salesEnd) {
+      await applicationDB.execute('DELETE FROM guildsync_raffle_bonus_overrides WHERE raffle_type = ? AND sales_end IN (?, ?)',[type,salesEnd,legacy]);
+    } else {
+      await applicationDB.execute('DELETE FROM guildsync_raffle_bonus_overrides WHERE raffle_type = ? AND sales_end = ?',[type,salesEnd]);
+    }
     return;
   }
   if (!['monthly', 'biweekly'].includes(type) || !Number.isSafeInteger(salesEnd) || salesEnd <= 0 ||
@@ -2085,7 +2059,7 @@ export function getRaffleRefreshSelection(date, now = Math.floor(Date.now() / 10
       cutoff = next(cutoff + 1);
       end = raffleEvening(raffleLocalParts(cutoff));
     }
-    const previous = type === 'biweekly' ? cutoff - BANKING_BIWEEKLY_INTERVAL_SECONDS : getDepositMailPreviousMonthlySalesEnd(cutoff);
+    const previous = type === 'biweekly' ? shiftRaffleSalesEnd(cutoff, -1) : getDepositMailPreviousMonthlySalesEnd(cutoff);
     return { type, label: type === 'biweekly' ? 'Bi-Weekly' : '50/50', start: raffleEvening(raffleLocalParts(previous)), end };
   });
   const boundaryTypes = date === undefined ? [] : raffles.filter(raffle => raffle.type === 'biweekly' && raffle.start === lookupAt).map(raffle => raffle.type);
@@ -2135,7 +2109,7 @@ export async function getActiveRaffleSummary(applicationDB, now = Math.floor(Dat
       : getDepositMailBiweeklySalesEndAtOrAfter(reference);
     const previousSalesEnd = type === 'monthly'
       ? getDepositMailPreviousMonthlySalesEnd(salesEnd)
-      : salesEnd - BANKING_BIWEEKLY_INTERVAL_SECONDS;
+      : shiftRaffleSalesEnd(salesEnd, -1);
     const salesStart = previousSalesEnd + 1;
     const rows = entries.filter((entry) => normalizeDepositMailTicketType(entry.type) === type &&
       Number(entry.time) > previousSalesEnd && Number(entry.time) <= salesEnd && Number(entry.time) <= now);
@@ -2206,7 +2180,7 @@ export async function getRaffleUserTickets(applicationDB, discordUserId, now = M
   const getPurchases = (esoAccountName) => ['biweekly', 'monthly'].flatMap(type => {
     const reference = now - BANKING_RAFFLE_AFTER_SALES_SECONDS + 1;
     const salesEnd = type === 'monthly' ? getDepositMailMonthlySalesEndAtOrAfter(reference) : getDepositMailBiweeklySalesEndAtOrAfter(reference);
-    const previousSalesEnd = type === 'monthly' ? getDepositMailPreviousMonthlySalesEnd(salesEnd) : salesEnd - BANKING_BIWEEKLY_INTERVAL_SECONDS;
+    const previousSalesEnd = type === 'monthly' ? getDepositMailPreviousMonthlySalesEnd(salesEnd) : shiftRaffleSalesEnd(salesEnd, -1);
     return entries.filter(entry => normalizeDepositMailTicketType(entry.type) === type && Number(entry.time) > previousSalesEnd && Number(entry.time) <= salesEnd && Number(entry.time) <= now && String(entry.displayName || '').replace(/^@+/, '').toLowerCase() === String(esoAccountName).toLowerCase() && Number(entry.purchasedTickets || 0) > 0)
       .map(entry => ({ raffleType: type, raffleLabel: type === 'biweekly' ? 'Bi-weekly' : '50/50', time: Number(entry.time), purchasedTickets: Number(entry.purchasedTickets) || 0, bonusEnabled: entry.bonusEnabled === true, bonusPercent: Number(entry.bonusPercent) || 0, bonusTickets: Number(entry.bonusTickets) || 0, totalTickets: Number(entry.totalTickets) || 0 }));
   });
@@ -5248,7 +5222,7 @@ export function getAssociateTicketReportRaffleWindow(row = {}) {
 
   const previousSalesEnd = type === 'monthly'
     ? getDepositMailPreviousMonthlySalesEnd(salesEnd)
-    : salesEnd - BANKING_BIWEEKLY_INTERVAL_SECONDS;
+    : shiftRaffleSalesEnd(salesEnd, -1);
 
   return {
     type,
@@ -5260,13 +5234,7 @@ export function getAssociateTicketReportRaffleWindow(row = {}) {
 }
 
 function getDepositMailPreviousMonthlySalesEnd(currentSalesEnd) {
-  let salesEnd = currentSalesEnd - BANKING_BIWEEKLY_INTERVAL_SECONDS;
-
-  while (!isDepositMailLastRaffleSalesEndInEasternMonth(salesEnd)) {
-    salesEnd -= BANKING_BIWEEKLY_INTERVAL_SECONDS;
-  }
-
-  return salesEnd;
+  return previousMonthlySalesEnd(currentSalesEnd);
 }
 
 function formatAssociateTicketReportRafflePeriod(row = {}) {

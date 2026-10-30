@@ -26,6 +26,7 @@ function archiveName(drawTime) {
  * State is bound by the caller to the configured source spreadsheet.
  */
 export function createRollover({ loadState, saveState, getWindows, archive, reset,
+  normalizeWindow = window => window,
   delaySeconds = 0, getDelaySeconds = () => delaySeconds, now = () => Math.floor(Date.now() / 1000), log = () => {} }) {
   if (!Number.isSafeInteger(delaySeconds) || delaySeconds < 0) throw new Error('Invalid rollover delay');
   return {
@@ -41,9 +42,43 @@ export function createRollover({ loadState, saveState, getWindows, archive, rese
       }
       if (state.version !== 1 || !state.lastClosedSalesEnd) throw new Error('Invalid rollover state');
       validateWindows(state.windows);
+      // Keep recovery payloads immutable once copying may have begun. Normalization
+      // is idempotent and only applies to armed windows or dated automatic holds.
+      const normalized = windows => validateWindows(windows.map(window => normalizeWindow({ ...window })));
+      const pending = state.pending;
+      if (pending && !pending.manual && !pending.archiveId && Number.isFinite(pending.readyAt)) {
+        const before = JSON.stringify(state);
+        state.windows = normalized(state.windows);
+        if (pending) {
+          const previousBasis = pending.deadlineBasis === 'draw'
+            ? Math.max(...pending.raffles.map(raffle => raffle.drawTime)) : pending.salesEnd;
+          const savedDelay = pending.readyAt - previousBasis;
+          const raffles = pending.raffles.map(window => normalizeWindow({ ...window }));
+          if (!raffles.length || raffles.some(window => !Number.isSafeInteger(window.salesEnd) || !Number.isSafeInteger(window.drawTime))) {
+            throw new Error('Invalid pending rollover schedule');
+          }
+          const changed = raffles.some((raffle, index) => raffle.salesEnd !== pending.raffles[index].salesEnd || raffle.drawTime !== pending.raffles[index].drawTime);
+          pending.nextWindows = normalized(pending.nextWindows);
+          if (changed) {
+            if (!Number.isSafeInteger(savedDelay) || savedDelay < 0) throw new Error('Invalid pending rollover deadline');
+            pending.raffles = raffles;
+            pending.salesEnd = Math.min(...raffles.map(raffle => raffle.salesEnd));
+            pending.readyAt = Math.max(...raffles.map(raffle => raffle.drawTime)) + savedDelay;
+            pending.deadlineBasis = 'draw';
+          }
+        }
+        if (JSON.stringify(state) !== before) await saveState(structuredClone(state));
+      }
       // Limit work per tick after unusually long outages; remaining work stays durable.
       for (let count = 0; count < 100; count += 1) {
         if (!state.pending) {
+          // Recovery may have just armed legacy nextWindows. Correct and persist
+          // them before evaluating another cutoff in this same tick.
+          const armed = normalized(state.windows);
+          if (JSON.stringify(armed) !== JSON.stringify(state.windows)) {
+            state.windows = armed;
+            await saveState(structuredClone(state));
+          }
           const cutoff = Math.min(...state.windows.map((window) => window.salesEnd));
           if (cutoff > timestamp && !archiveNow) return state;
           const manual = cutoff > timestamp;
