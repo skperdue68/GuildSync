@@ -5,6 +5,7 @@ import { resetRequests, drawDateRequest } from './raffle-sheet-layout.js';
 import { createHash } from 'node:crypto';
 import { requestArchive } from './apps-script-archive.js';
 import { createRollover } from './raffle-sheet-rollover.js';
+import { normalizeScheduledSalesEnd } from './raffle-schedule.js';
 import { createSheetsExportStore } from './sheets-export-queue.js';
 import { config, googleContext, sheetsRequest, configureSheetsCoordinator, replayBankingEntries, exportLog } from './google-sheets-banking-sync.js';
 
@@ -25,6 +26,10 @@ export function startSheetsRollover(db, getWindows, { now, schedule = true, load
   const contextNow = async () => context ||= await googleContext();
   const tabFor = type => type === 'biweekly' ? settings.biweeklyTab : settings.fiftyFiftyTab;
   const io = {
+    normalizeWindow: window => {
+      const salesEnd = normalizeScheduledSalesEnd(window.salesEnd);
+      return {...window, salesEnd, drawTime:window.drawTime + salesEnd - window.salesEnd};
+    },
     now,
     delaySeconds: hours * 3600,
     getDelaySeconds: () => Number(process.env.GUILDSYNC_GOOGLE_SHEETS_ROLLOVER_DELAY_HOURS || 4) * 3600,
