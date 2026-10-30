@@ -5700,8 +5700,8 @@ function renderBankingRafflePeriodControls(section) {
       <button class="bank-period-arrow" type="button" data-bank-period-move="previous" aria-label="Previous ${escapeAttribute(getBankingSectionLabel(section))} raffle period">‹</button>
       <div class="bank-raffle-period-content">
         <div class="bank-raffle-period-label">${escapeHtml(getBankingSectionLabel(section))} Raffle Period ${offset === 0 ? '(Current)' : `(${Math.abs(offset)} period${Math.abs(offset) === 1 ? '' : 's'} back)`}</div>
-        <div class="bank-raffle-period-range">Sales: ${escapeHtml(formatBankingTimestamp(windowInfo.salesStart))} through ${escapeHtml(formatBankingTimestamp(windowInfo.salesEnd))}</div>
-        <div class="bank-raffle-period-raffle">Raffle Time: ${escapeHtml(formatBankingTimestamp(windowInfo.raffleTime))}</div>
+        <div class="bank-raffle-period-range">Sales: ${escapeHtml(formatBankingTimestamp(windowInfo.salesStart, true))} through ${escapeHtml(formatBankingTimestamp(windowInfo.salesEnd, true))}</div>
+        <div class="bank-raffle-period-raffle">Raffle Time: ${escapeHtml(formatBankingTimestamp(windowInfo.raffleTime, true))}</div>
       </div>
       <button class="bank-period-arrow" type="button" data-bank-period-move="next" ${canMoveForward ? '' : 'disabled'} aria-label="Next ${escapeAttribute(getBankingSectionLabel(section))} raffle period">›</button>
     </div>
@@ -6772,7 +6772,7 @@ function getBankingSectionLabel(section) {
   return 'Other';
 }
 
-function formatBankingTimestamp(value) {
+function formatBankingTimestamp(value, showTimeZone = false) {
   const timestamp = Number(value);
 
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -6784,7 +6784,8 @@ function formatBankingTimestamp(value) {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    ...(showTimeZone ? { timeZoneName: 'short' } : {})
   });
 }
 
