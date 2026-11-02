@@ -1,3 +1,4 @@
+import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import {biweeklySalesEndAtOrAfter, monthlySalesEndAtOrAfter, previousMonthlySalesEnd, shiftRaffleSalesEnd, normalizeScheduledSalesEnd} from './raffle-schedule.js';
 import {initializeCommunityStatisticsSchema} from './community-statistics.js';
 import {initializeSheetsExportQueue, enqueueSheetsExports, createSheetsExportStore} from './sheets-export-queue.js';
@@ -517,6 +518,8 @@ async function initializeSchema(db) {
   await addColumnIfMissing(db, 'guildsync_banking_entries', 'checked_out_by', 'varchar(255) DEFAULT NULL');
   await addColumnIfMissing(db, 'guildsync_banking_entries', 'checked_out_at', 'datetime DEFAULT NULL');
   await addColumnIfMissing(db, 'guildsync_banking_entries', 'checkout_expires_at', 'datetime DEFAULT NULL');
+  await addColumnIfMissing(db, 'guildsync_banking_entries', 'mail_handoff_version', 'TINYINT UNSIGNED NOT NULL DEFAULT 0');
+  await releaseExpiredDepositMailCheckouts(db);
   await addColumnIfMissing(db, 'guildsync_banking_entries', 'written_to_eso_at', 'datetime DEFAULT NULL');
   await addColumnIfMissing(db, 'guildsync_banking_entries', 'sent_at', 'datetime DEFAULT NULL');
   await addColumnIfMissing(db, 'guildsync_banking_entries', 'failed_reason', 'text DEFAULT NULL');
@@ -2342,6 +2345,7 @@ export async function checkoutDepositMail(applicationDB, payload = {}) {
 
   try {
     await connection.beginTransaction();
+    await releaseExpiredDepositMailCheckouts(connection);
 
     const [candidateRows] = await connection.query(
       `
@@ -2379,6 +2383,7 @@ export async function checkoutDepositMail(applicationDB, payload = {}) {
             checked_out_by = ?,
             checked_out_at = NOW(),
             checkout_expires_at = DATE_ADD(NOW(), INTERVAL ? MINUTE),
+            mail_handoff_version = ?,
             written_to_eso_at = NULL,
             sent_at = NULL,
             failed_reason = NULL
@@ -2386,7 +2391,7 @@ export async function checkoutDepositMail(applicationDB, payload = {}) {
           AND LOWER(transaction_type) IN ('biweekly', 'monthly')
           AND event_id IN (${placeholders})
       `,
-      [mailBatchId, checkedOutBy, checkoutMinutes, ...eventIds]
+      [mailBatchId, checkedOutBy, checkoutMinutes, Number(payload.handoff_protocol) === 1 ? 1 : 0, ...eventIds]
     );
 
     const [checkedOutRows] = await connection.query(
@@ -2458,9 +2463,11 @@ export async function markDepositMailWrittenToESO(applicationDB, payload = {}) {
 
   try {
     await connection.beginTransaction();
+    await releaseExpiredDepositMailCheckouts(connection);
 
     const conditions = [
       "mail_status = 'checked_out'",
+      "(mail_handoff_version = 0 OR checkout_expires_at > NOW())",
       'checked_out_by = ?'
     ];
     const params = [checkedOutBy];
@@ -2481,7 +2488,8 @@ export async function markDepositMailWrittenToESO(applicationDB, payload = {}) {
       `
         UPDATE guildsync_banking_entries
         SET mail_status = 'written_to_eso',
-            written_to_eso_at = NOW()
+            written_to_eso_at = NOW(),
+            checkout_expires_at = NULL
         WHERE ${whereClause}
       `,
       params

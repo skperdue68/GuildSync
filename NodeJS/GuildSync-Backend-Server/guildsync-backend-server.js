@@ -1,4 +1,5 @@
 import {registerApplicationHistorySocket} from './application-history.js';
+import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import {registerCommunityStatisticsSocket} from './community-statistics.js';
 import {startSheetsExportRecovery} from './sheets-export-queue.js';
 import {initializeVoiceIdentitySchema,createVoiceIdentityService,registerVoiceIdentityRoutes,registerVoiceOnlyConnection,authorizeVoiceRequester,authenticateVoiceSocket} from './voice-auth.js';
@@ -1605,6 +1606,7 @@ io.on('connection', (socket) => {
 
   socket.on('guildsync:request-banking-data', async (payload = {}, callback) => {
     try {
+      await releaseExpiredDepositMailCheckouts(applicationDB);
       const bonusSettings = await getRaffleBonusSettings(applicationDB);
       const bonusVersions = await getRaffleBonusVersions(applicationDB);
       const [entries, refreshDate, bonusRaffles] = await Promise.all([
@@ -1708,7 +1710,7 @@ io.on('connection', (socket) => {
       const response = {
         ok: true,
         message: result.records_checked_out > 0
-          ? `Checked out ${result.records_checked_out} deposit mail record(s).`
+          ? `Checked out ${result.records_checked_out} deposit mail record(s).${Number(payload.handoff_protocol) === 1 ? ` Unwritten checkouts expire after ${result.checkout_minutes} minutes.` : ''}`
           : 'No unsent deposit mail records are available to check out.',
         ...result,
         checked_out_by_name: checkedOutByName || null,
@@ -1761,7 +1763,7 @@ io.on('connection', (socket) => {
         ''
       ).trim();
 
-      Log(`Deposit mail written-to-ESO confirmation received from ${checkedOutByName || checkedOutBy || 'unknown user'}.`);
+      Log(`Deposit mail SavedVariables handoff authorization requested by ${checkedOutByName || checkedOutBy || 'unknown user'}.`);
 
       const result = await markDepositMailWrittenToESO(applicationDB, {
         ...payload,
@@ -1771,7 +1773,7 @@ io.on('connection', (socket) => {
       const response = {
         ok: true,
         message: result.records_written_to_eso > 0
-          ? `Marked ${result.records_written_to_eso} deposit mail record(s) as written to ESO.`
+          ? `Reserved ${result.records_written_to_eso} deposit mail record(s) for the ESO SavedVariables handoff.`
           : 'No checked out deposit mail records were updated.',
         ...result,
         checked_out_by_name: checkedOutByName || null,
@@ -2675,6 +2677,7 @@ server.listen(PORT, HOST, () => {
 
 async function broadcastBankingDataUpdate() {
   try {
+    await releaseExpiredDepositMailCheckouts(applicationDB);
     const bonusSettings = await getRaffleBonusSettings(applicationDB);
     const bonusVersions = await getRaffleBonusVersions(applicationDB);
     const [entries, refreshDate, bonusRaffles] = await Promise.all([

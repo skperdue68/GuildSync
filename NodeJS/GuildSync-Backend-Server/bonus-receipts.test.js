@@ -19,6 +19,7 @@ async function receipt({ type = 'biweekly', enabled = true, time = '2026-09-14T1
    return [{ affectedRows: 1 }];
   },
   async execute(sql) {
+   if (sql.includes("mail_handoff_version = 1")) return [{affectedRows:0}];
    if (sql.includes('guildsync_raffle_bonus_versions')) return [[{ raffle_type: type, effective_from: 1, enabled: enabled ? 1 : 0, tiers_json: JSON.stringify(tiers) }]];
    if (sql.includes('guildsync_raffle_bonus_overrides')) return [override ? [{ raffle_type: type, sales_end: Date.parse('2026-09-26T23:00:00Z')/1000, enabled: 1, tiers_json: JSON.stringify(parseBonusTiers(override)) }] : []];
    throw Error(sql);
