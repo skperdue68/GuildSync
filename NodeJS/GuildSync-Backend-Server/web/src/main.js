@@ -168,6 +168,7 @@ let rosterHistoryActiveMatchIndex = -1;
 let rosterNotesDialogOpen = false;
 let rosterNotesDialogAccountName = '';
 let rosterNotesDialogNotes = [];
+let rosterNotesLoadGeneration = 0;
 let rosterNotesDialogLoading = false;
 let rosterNotesDialogSaving = false;
 let rosterNotesDialogError = '';
@@ -4839,6 +4840,7 @@ async function openRosterNotesDialog(accountName = '') {
   const cleanAccountName = String(accountName || '').trim();
   if (!cleanAccountName) return;
 
+  const generation = ++rosterNotesLoadGeneration;
   rosterNotesDialogOpen = true;
   rosterNotesDialogAccountName = cleanAccountName;
   rosterNotesDialogNotes = [];
@@ -4853,20 +4855,24 @@ async function openRosterNotesDialog(accountName = '') {
       account_name: cleanAccountName
     }, 30000);
 
+    if (generation !== rosterNotesLoadGeneration) return;
     if (!response?.ok) {
       throw new Error(response?.message || response?.error || 'Failed to load roster notes.');
     }
 
     rosterNotesDialogNotes = Array.isArray(response.notes) ? response.notes : [];
   } catch (error) {
+    if (generation !== rosterNotesLoadGeneration) return;
     rosterNotesDialogError = formatError(error);
   } finally {
+    if (generation !== rosterNotesLoadGeneration) return;
     rosterNotesDialogLoading = false;
     renderGuildSyncTabLayout();
   }
 }
 
 function closeRosterNotesDialog() {
+  rosterNotesLoadGeneration++;
   rosterNotesDialogOpen = false;
   rosterNotesDialogAccountName = '';
   rosterNotesDialogNotes = [];
@@ -4910,6 +4916,7 @@ async function submitRosterMemberNote() {
     return;
   }
 
+  const generation = rosterNotesLoadGeneration;
   rosterNotesDialogSaving = true;
   rosterNotesDialogError = '';
   renderGuildSyncTabLayout();
@@ -4920,6 +4927,7 @@ async function submitRosterMemberNote() {
       note
     }, 30000);
 
+    if (generation !== rosterNotesLoadGeneration) return;
     if (!response?.ok) {
       throw new Error(response?.message || response?.error || 'Failed to save roster note.');
     }
@@ -4934,8 +4942,10 @@ async function submitRosterMemberNote() {
       rosterMember.note_count = Number(rosterMember.note_count || 0) + 1;
     }
   } catch (error) {
+    if (generation !== rosterNotesLoadGeneration) return;
     rosterNotesDialogError = formatError(error);
   } finally {
+    if (generation !== rosterNotesLoadGeneration) return;
     rosterNotesDialogSaving = false;
     renderGuildSyncTabLayout();
   }
@@ -9223,6 +9233,12 @@ function connectSocket() {
     handleBankingDataUpdated(payload);
   });
 
+  socket.on('guildsync:roster-notes-access-changed', () => {
+    rosterNotesLoadGeneration++;
+    rosterNotesDialogNotes = [];
+    if (rosterNotesDialogOpen) void openRosterNotesDialog(rosterNotesDialogAccountName);
+  });
+
   socket.on('guildsync:roster-data-updated', (payload) => {
     handleRosterDataUpdated(payload);
   });
@@ -9247,6 +9263,9 @@ function disconnectSocket(updateDot = true) {
   rosterHistorySelectedAccount = '';
   rosterHistoryEvents = [];
   rosterHistoryDialogOpen = false;
+  rosterNotesLoadGeneration++;
+  rosterNotesDialogNotes = [];
+  rosterNotesDialogOpen = false;
   userAdministrationPanel.reset();
   stopVersionCheckTimer();
 

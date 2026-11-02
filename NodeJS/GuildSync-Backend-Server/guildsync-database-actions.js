@@ -1,3 +1,4 @@
+import {initializeRosterNoteAccess} from './roster-note-access.js';
 import {biweeklySalesEndAtOrAfter, monthlySalesEndAtOrAfter, previousMonthlySalesEnd, shiftRaffleSalesEnd, normalizeScheduledSalesEnd} from './raffle-schedule.js';
 import {initializeCommunityStatisticsSchema} from './community-statistics.js';
 import {initializeSheetsExportQueue, enqueueSheetsExports, createSheetsExportStore} from './sheets-export-queue.js';
@@ -305,6 +306,7 @@ async function createAndInitializePool() {
 }
 
 async function initializeSchema(db) {
+  await initializeRosterNoteAccess(db);
   await initializeSheetsExportQueue(db);
   await initializeCommunityStatisticsSchema(db);
   await initializeDiscordOnboardingSchema(db);
@@ -2933,31 +2935,9 @@ export async function getRosterDataJSON(applicationDB) {
     return [];
   }
 
-  try {
-    await ensureRosterMemberNotesTable(applicationDB);
-    const [noteRows] = await applicationDB.execute(`
-      SELECT
-        LOWER(account_name) AS account_key,
-        COUNT(*) AS note_count
-      FROM guildsync_roster_member_notes
-      GROUP BY LOWER(account_name)
-    `);
-
-    const noteCountsByAccount = new Map(
-      noteRows.map((row) => [String(row.account_key || '').trim(), Number(row.note_count || 0)])
-    );
-
-    return rosterMembers.map((member) => ({
-      ...member,
-      note_count: noteCountsByAccount.get(String(member.account_name || '').trim().toLowerCase()) || 0
-    }));
-  } catch (error) {
-    console.warn('Unable to load roster member note counts; roster data will be returned without note counts.', error?.message || error);
-    return rosterMembers.map((member) => ({
-      ...member,
-      note_count: 0
-    }));
-  }
+  // Shared/import responses must never contain unfiltered note indicators.
+  // Authenticated request/broadcast paths decorate counts per recipient.
+  return rosterMembers.map(member => ({...member,note_count:0}));
 }
 
 export async function getRosterMemberNotes(applicationDB, accountName = '') {
