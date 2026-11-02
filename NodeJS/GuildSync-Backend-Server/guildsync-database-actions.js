@@ -3102,6 +3102,10 @@ export async function processRosterData(applicationDB, payload = {}) {
 
   try {
     await connection.beginTransaction();
+    // Serialize roster imports, including stream-only uploads, against the snapshot watermark.
+    await connection.execute('INSERT IGNORE INTO guildsync_settings (setting_key,value) VALUES (?,?)', ['lastGuildList','0']);
+    const [snapshotRows] = await connection.execute('SELECT value FROM guildsync_settings WHERE setting_key = ? LIMIT 1 FOR UPDATE', ['lastGuildList']);
+    let lastGuildList = Number(snapshotRows[0]?.value || 0);
 
     if (guildList) {
       const listTimestamp = normalizeRosterTimestamp(guildList.listTimestamp || guildList.dumpTimestamp);
@@ -3109,19 +3113,9 @@ export async function processRosterData(applicationDB, payload = {}) {
       result.guildlist_members_received = guildMembers.length;
 
       if (listTimestamp) {
-        const [settingRows] = await connection.execute(
-          `
-            SELECT value
-            FROM guildsync_settings
-            WHERE setting_key = ?
-            LIMIT 1
-          `,
-          ['lastGuildList']
-        );
-
-        const lastGuildList = Number(settingRows[0]?.value || 0);
-
-        if (lastGuildList > Number(listTimestamp)) {
+        const [latestRows] = await connection.execute(`SELECT MAX(CAST(event_timestamp AS UNSIGNED)) AS latest
+          FROM guildsync_roster_events WHERE event_type IN ('joined','left','kicked','promoted','demoted','Removed (Not On Roster)')`);
+        if (lastGuildList >= Number(listTimestamp) || Number(latestRows[0]?.latest || 0) > Number(listTimestamp)) {
           result.guildlist_skipped_stale = true;
         } else {
           await connection.execute(
@@ -3219,13 +3213,16 @@ export async function processRosterData(applicationDB, payload = {}) {
           }
 
           await connection.execute(`DELETE FROM guildsync_roster_members WHERE in_roster = 0`);
+          lastGuildList = Number(listTimestamp);
           result.guildlist_processed = true;
         }
       }
     }
 
-    for (const event of rosterEvents) {
-      const processed = await processSingleRosterStreamEvent(connection, event);
+    const orderedEvents = [...rosterEvents].sort((a,b) =>
+      Number(a.timestampS || a.timeStamp || a.timestamp || a.time || 0) - Number(b.timestampS || b.timeStamp || b.timestamp || b.time || 0));
+    for (const event of orderedEvents) {
+      const processed = await processSingleRosterStreamEvent(connection, event, lastGuildList);
       if (processed) {
         result.stream_events_inserted += 1;
       }
@@ -3258,7 +3255,7 @@ export async function processRosterData(applicationDB, payload = {}) {
   return result;
 }
 
-async function processSingleRosterStreamEvent(connection, event = {}) {
+async function processSingleRosterStreamEvent(connection, event = {}, snapshotTimestamp = 0) {
   const event_id = String(event.eventId || event.event_id || '').trim();
   const eventType = normalizeRosterEventType(event.eventType || event.event_type);
   const rankName = normalizeRosterRank(event.rankName || event.rank);
@@ -3280,6 +3277,11 @@ async function processSingleRosterStreamEvent(connection, event = {}) {
     return false;
   }
 
+  const [latestRows] = await connection.execute(`SELECT MAX(CAST(event_timestamp AS UNSIGNED)) AS latest
+    FROM guildsync_roster_events WHERE account_name = ?
+      AND event_type IN ('joined','left','kicked','promoted','demoted','Removed (Not On Roster)')`, [accountName]);
+  const latestTimestamp = Number(latestRows[0]?.latest || 0);
+
   const [insertResult] = await connection.execute(
     `
       INSERT IGNORE INTO guildsync_roster_events (
@@ -3294,6 +3296,11 @@ async function processSingleRosterStreamEvent(connection, event = {}) {
     `,
     [event_id, accountName, eventType, rankName, String(timestamp), officerName]
   );
+
+  const inserted = (insertResult.affectedRows || 0) > 0;
+  // Keep newly discovered historical events, but never apply them to a newer current roster.
+  if (!inserted || Number(timestamp) <= snapshotTimestamp || Number(timestamp) < latestTimestamp
+    || (eventType === 'joined' && Number(timestamp) === latestTimestamp)) return inserted;
 
   if (eventType === 'joined') {
     await connection.execute(
@@ -3356,21 +3363,8 @@ async function processSingleRosterStreamEvent(connection, event = {}) {
       [accountName]
     );
   } else if (eventType === 'promoted' || eventType === 'demoted') {
-    await connection.execute(
-      `
-        INSERT INTO guildsync_roster_members (
-          account_name,
-          rank_name,
-          joined_timestamp,
-          in_roster
-        )
-        VALUES (?, ?, ?, 1)
-        ON DUPLICATE KEY UPDATE
-          rank_name = VALUES(rank_name),
-          in_roster = 1
-      `,
-      [accountName, rankName, String(timestamp)]
-    );
+    // A rank event is not evidence of a rejoin; never create an absent member here.
+    await connection.execute('UPDATE guildsync_roster_members SET rank_name = ? WHERE account_name = ?', [rankName, accountName]);
   }
 
   return (insertResult.affectedRows || 0) > 0;
