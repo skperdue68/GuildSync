@@ -2594,6 +2594,7 @@ export async function markDepositMailSent(applicationDB, payload = {}) {
         WHERE mail_request_id IN (${placeholders})
           AND checked_out_by = ?
           AND mail_status IN ('written_to_eso', 'checked_out', 'sent')
+        FOR UPDATE
       `,
       [...mailRequestIds, checkedOutBy]
     );
@@ -2612,7 +2613,7 @@ export async function markDepositMailSent(applicationDB, payload = {}) {
               sent_at = COALESCE(sent_at, NOW())
           WHERE mail_request_id IN (${confirmedPlaceholders})
             AND checked_out_by = ?
-            AND mail_status IN ('written_to_eso', 'checked_out', 'sent')
+            AND mail_status IN ('written_to_eso', 'checked_out')
         `,
         [...confirmedRequestIds, checkedOutBy]
       );
