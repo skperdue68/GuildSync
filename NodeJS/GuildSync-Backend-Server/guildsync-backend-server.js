@@ -1,3 +1,4 @@
+import {registerApplicationHistorySocket} from './application-history.js';
 import {registerCommunityStatisticsSocket} from './community-statistics.js';
 import {startSheetsExportRecovery} from './sheets-export-queue.js';
 import {initializeVoiceIdentitySchema,createVoiceIdentityService,registerVoiceIdentityRoutes,registerVoiceOnlyConnection,authorizeVoiceRequester,authenticateVoiceSocket} from './voice-auth.js';
@@ -554,6 +555,7 @@ io.on('connection', (socket) => {
       return Number(rows[0]?.allowed)===1 && ['viewer','user','admin'].includes(roleViews.effective(current.guildSyncRoleViewId,rows[0]?.role)||rows[0]?.role);
     }
   });
+  registerApplicationHistorySocket(socket,{db:applicationDB,loginDB});
   registerRolePermissions(socket,loginDB,roleViews);
   registerRoleViewSocket(socket,roleViews,async()=>{
     let profile;

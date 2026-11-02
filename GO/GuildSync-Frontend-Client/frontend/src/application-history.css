@@ -1,0 +1,10 @@
+.join-application-text {
+  margin-top: .4rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: .9rem;
+  line-height: 1.45;
+}
+.join-application-text small { display: block; margin-top: .3rem; opacity: .8; }
+
+.roster-rank-history-event-table .join-application-row td { width: auto; padding-top: 0; }

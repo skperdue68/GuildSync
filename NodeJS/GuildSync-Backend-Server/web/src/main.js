@@ -1,3 +1,5 @@
+import {matchApplicationsToJoins,renderJoinApplication} from './application-history.js';
+import './application-history.css';
 import {
   biweeklySalesEndAtOrAfter as scheduledBiweeklySalesEndAtOrAfter,
   monthlySalesEndAtOrAfter as scheduledMonthlySalesEndAtOrAfter,
@@ -155,6 +157,9 @@ let rosterHistoryDialogOpen = false;
 let rosterHistorySearchText = '';
 let rosterHistoryMatches = [];
 let rosterHistorySelectedAccount = '';
+let rosterHistoryApplications = [];
+let rosterHistoryApplicationsLoaded = false;
+let rosterHistoryLoadGeneration = 0;
 let rosterHistoryEvents = [];
 let rosterHistoryLoading = false;
 let rosterHistoryError = '';
@@ -1788,6 +1793,7 @@ function renderRosterHistoryMatches() {
 }
 
 function renderRosterHistoryEvents() {
+  const applicationMatches = matchApplicationsToJoins(rosterHistoryEvents, rosterHistoryApplications);
   if (!rosterHistorySelectedAccount) {
     return '<div class="roster-history-muted">Choose a matching account to see Guild Roster History.</div>';
   }
@@ -1812,13 +1818,14 @@ function renderRosterHistoryEvents() {
           </tr>
         </thead>
         <tbody>
-          ${rosterHistoryEvents.map((event) => `
+          ${rosterHistoryEvents.map((event, index) => `
             <tr>
               <td class="roster-history-when-cell">${escapeHtml(formatRosterHistoryTimestamp(event.timestamp))}</td>
               <td>${escapeHtml(event.event_type || '')}</td>
               <td>${renderRosterHistoryRank(event.rank)}</td>
               <td>${escapeHtml(event.officer || '')}</td>
             </tr>
+            ${event.event_type === 'joined' ? `<tr class="join-application-row"><td colspan="4">${renderJoinApplication(applicationMatches.get(index), rosterHistoryApplicationsLoaded)}</td></tr>` : ''}
           `).join('')}
         </tbody>
       </table>
@@ -5096,6 +5103,8 @@ function wireRosterHistoryDialog() {
         rosterHistoryError = '';
         rosterHistoryMatches = [];
         rosterHistorySelectedAccount = '';
+        rosterHistoryApplications = [];
+        rosterHistoryApplicationsLoaded = false;
         rosterHistoryEvents = [];
         rosterHistoryLoading = false;
         renderGuildSyncTabLayout();
@@ -5353,6 +5362,8 @@ async function searchRosterRankHistory(options = {}) {
     rosterHistoryMatches = [];
     rosterHistoryActiveMatchIndex = -1;
     rosterHistorySelectedAccount = '';
+    rosterHistoryApplications = [];
+    rosterHistoryApplicationsLoaded = false;
     rosterHistoryEvents = [];
     rosterHistoryLoading = false;
     renderGuildSyncTabLayout();
@@ -5367,6 +5378,8 @@ async function searchRosterRankHistory(options = {}) {
   rosterHistoryMatches = [];
   rosterHistoryActiveMatchIndex = -1;
   rosterHistorySelectedAccount = '';
+  rosterHistoryApplications = [];
+  rosterHistoryApplicationsLoaded = false;
   rosterHistoryEvents = [];
   renderGuildSyncTabLayout();
   if (options.keepFocus) {
@@ -5400,7 +5413,10 @@ async function loadRosterStreamHistory(accountName, options = {}) {
     return;
   }
 
+  const generation = ++rosterHistoryLoadGeneration;
   rosterHistorySelectedAccount = cleanAccountName;
+  rosterHistoryApplications = [];
+  rosterHistoryApplicationsLoaded = false;
   rosterHistorySearchText = cleanAccountName;
   rosterHistoryEvents = [];
   rosterHistoryLoading = true;
@@ -5408,7 +5424,13 @@ async function loadRosterStreamHistory(accountName, options = {}) {
   renderGuildSyncTabLayout();
 
   try {
-    const response = await emitSocketWithAck('guildsync:request-roster-stream-history', { account_name: cleanAccountName }, 30000);
+    const [response,applications] = await Promise.all([
+      emitSocketWithAck('guildsync:request-roster-stream-history', { account_name: cleanAccountName }, 30000),
+      emitSocketWithAck('guildsync:request-application-history', { account_name: cleanAccountName }, 30000).catch(() => null)
+    ]);
+    if (generation !== rosterHistoryLoadGeneration || rosterHistorySelectedAccount !== cleanAccountName) return;
+    rosterHistoryApplicationsLoaded = !!applications?.ok;
+    rosterHistoryApplications = applications?.ok && Array.isArray(applications.records) ? applications.records : [];
 
     if (!response?.ok) {
       throw new Error(response?.message || response?.error || 'Failed to load roster stream history.');
@@ -5416,8 +5438,10 @@ async function loadRosterStreamHistory(accountName, options = {}) {
 
     rosterHistoryEvents = normalizeRosterHistoryEvents(response.events);
   } catch (error) {
+    if (generation !== rosterHistoryLoadGeneration || rosterHistorySelectedAccount !== cleanAccountName) return;
     rosterHistoryError = formatError(error);
   } finally {
+    if (generation !== rosterHistoryLoadGeneration || rosterHistorySelectedAccount !== cleanAccountName) return;
     rosterHistoryLoading = false;
     if (!options.keepLoading) {
       renderGuildSyncTabLayout();
@@ -9217,6 +9241,12 @@ function connectSocket() {
 }
 
 function disconnectSocket(updateDot = true) {
+  rosterHistoryLoadGeneration++;
+  rosterHistoryApplications = [];
+  rosterHistoryApplicationsLoaded = false;
+  rosterHistorySelectedAccount = '';
+  rosterHistoryEvents = [];
+  rosterHistoryDialogOpen = false;
   userAdministrationPanel.reset();
   stopVersionCheckTimer();
 
