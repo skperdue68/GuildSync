@@ -3,7 +3,7 @@
 local GSA = {}
 
 GSA.name = "GuildSyncApplications"
-GSA.version = "1.4.4"
+GSA.version = "1.4.5"
 
 local WELCOME_GUILD_NAME = "Alphabet Mafia"
 
@@ -401,6 +401,7 @@ end
 
 function GSA:GetDefaultSettings()
   return {
+    captureApplicationData = true,
     welcomeMessages = {},
     welcomeEmails = {},
     nextWelcomeMessageId = 1,
@@ -415,6 +416,9 @@ function GSA:EnsureSettings()
   self.saved.settings = self.saved.settings or self:GetDefaultSettings()
 
   local settings = self.saved.settings
+  if settings.captureApplicationData == nil then
+    settings.captureApplicationData = true
+  end
   settings.welcomeMessages = self:NormalizeWelcomeSettingsList(settings.welcomeMessages or {}, "message")
   settings.welcomeEmails = self:NormalizeWelcomeSettingsList(settings.welcomeEmails or {}, "email")
   -- Seed each empty category once; never overwrite custom text or restore deleted entries.
@@ -1467,6 +1471,18 @@ end
 function GSA:BuildSettingsOptions()
   return {
     {
+      type = "checkbox",
+      name = "Capture application data",
+      tooltip = "Save accepted and rejected applications for GuildSync. Existing captured records are preserved when disabled.",
+      getFunc = function() return GSA:EnsureSettings().captureApplicationData ~= false end,
+      setFunc = function(value) GSA:EnsureSettings().captureApplicationData = value end,
+      default = true,
+    },
+    {
+      type = "description",
+      text = "If you use this add-on with GuildSync, leave application-data capture enabled so application data can be copied automatically to Discord.",
+    },
+    {
       type = "description",
       text =
       "Create custom welcome chat messages and welcome emails. Use {name} anywhere you want the applicant account name inserted. Built-in defaults are hidden and used only when no enabled saved custom entry exists.",
@@ -1727,6 +1743,7 @@ function GSA:GetApplicationDataFromArgs(guildId, index)
 end
 
 function GSA:SaveApplicationRecord(record, applicantKey)
+  if self:EnsureSettings().captureApplicationData == false then return end
   self.saved.records = self.saved.records or {}
 
   self.saved.records[applicantKey] = record
@@ -1739,6 +1756,7 @@ function GSA:SaveApplicationRecord(record, applicantKey)
 end
 
 function GSA:RemoveApplicationRecord(applicantKey)
+  if self:EnsureSettings().captureApplicationData == false then return end
   if self.saved and self.saved.records and applicantKey and applicantKey ~= "" then
     self.saved.records[applicantKey] = nil
   end
@@ -1747,7 +1765,6 @@ end
 function GSA:SaveApplicationDecision(action, guildId, index, declineMessage, blacklistApplicant, blacklistMessage)
   local captureGuildId = self.saved and self.saved.settings and self.saved.settings.captureGuildId
   if captureGuildId and tostring(guildId) ~= tostring(captureGuildId) then return end
-  self.saved.records = self.saved.records or {}
 
   local capturedAt = Now()
   local applicationData = self:GetApplicationDataFromArgs(guildId, index)
