@@ -30,6 +30,7 @@ const readEvents = new Set([
   'guildsync:request-roster-member-notes',
   'guildsync:request-banking-history-matches',
   'guildsync:request-banking-history-records',
+  'guildsync:request-application-history',
   'guildsync:request-roster-rank-history',
   'guildsync:request-roster-stream-history',
   'guildsync:request-discord-member-history',
