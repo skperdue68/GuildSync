@@ -52,7 +52,8 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
     if(!member || member.user?.bot)return result('Discord member could not be found. Please review the Discord link and ESO rank.');
     const current=[...member.roles.cache.values()],highest=current.reduce((best,role)=>rankOf(role)>rankOf(best)?role:best,target);
     const effective=rankOf(highest)>desiredRank?highest:target;
-    if(effective.id===target.id && !member.roles.cache.has(target.id))await member.roles.add(target.id,'GuildSync returning member: latest recorded ESO promotion');
+    const alreadyHadTarget=member.roles.cache.has(target.id);
+    if(effective.id===target.id && !alreadyHadTarget)await member.roles.add(target.id,'GuildSync returning member: latest recorded ESO promotion');
     const lower=current.filter(role=>rankOf(role)>=0 && rankOf(role)<rankOf(effective));
     let cleanup='';
     if(lower.length) {
@@ -61,7 +62,7 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
     }
     const retained=effective.id!==target.id;
     log(`Returning member ${payload.applicantAccount}: Discord ${member.id}, historical ${historical.rankName}, effective ${effective.name}.`);
-    return result(`${safe(payload.applicantAccount)} ${retained?'retains their higher Discord rank':'has been restored to Discord rank'} **${safe(effective.name)}**.${cleanup} **An officer must also promote them in ESO** to the appropriate rank.`);
+    return result(`${safe(payload.applicantAccount)} ${retained?'retains their higher Discord rank':alreadyHadTarget?'currently holds Discord rank':'has been restored to Discord rank'} **${safe(effective.name)}**.${cleanup} **An officer should verify which rank they should hold in ESO and update it if needed.**`);
   } catch(error) {
     log(`Returning member rank restoration failed for ${payload.applicantAccount}: ${error.message}`);
     return result(`Previous recorded rank: **${safe(historical.rankName)}**. Discord rank could not be restored automatically. Please check bot permissions/account linking and promote in ESO.`);
