@@ -19,7 +19,7 @@ test('another sender receives no already-reserved deposit and candidates are loc
     }
     return [[{...row}].filter(r=>r.checked_out_by===args[1] && r.mail_batch_id===args[0])];
   }};
-  const ctx=vm.createContext({randomUUID:()=> 'batch',normalizePositiveInteger:(n,d)=>n||d,
+  const ctx=vm.createContext({releaseExpiredDepositMailCheckouts:async()=>0,randomUUID:()=> 'batch',normalizePositiveInteger:(n,d)=>n||d,
     getRaffleBonusVersions:async()=>[],getRaffleBonusOverrides:async()=>[],addRenderedDepositMailContent:row=>row,safeRollback:async()=>{}});
   vm.runInContext(source.slice(start,end).replace('export async','async'),ctx);
   const db={getConnection:async()=>connection};

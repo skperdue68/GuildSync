@@ -78,6 +78,7 @@ test('Save broadcasts recalculated raffle policies and entries to all attached c
   const clients = [[], []];
   let save;
   const ctx = vm.createContext({
+    releaseExpiredDepositMailCheckouts:async()=>0,
     applicationDB: db, loginDB: { async execute() { return [[{ role: 'admin' }]]; } },
     getRaffleBonusSettings, saveRaffleBonusSettings, getRaffleBonusVersions, getRaffleBonusChoices,
     saveRaffleBonusOverride, getBankingDataJSON, getBankingDataDate: async () => ({}),

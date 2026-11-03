@@ -7330,7 +7330,8 @@ async function checkoutDepositMailFromBackend() {
     const response = await emitSocketWithAck('guildsync:checkout-deposit-mail', {
       source: 'guildsync-frontend-client',
       max_records: 100,
-      checkout_minutes: 60
+      checkout_minutes: 60,
+      handoff_protocol: 1
     }, 30000);
 
     if (!response?.ok) {
@@ -7412,27 +7413,33 @@ async function processPendingDepositMailBatches() {
         continue;
       }
 
-      const writeResult = await WriteDepositMailToGuildSyncBanking(records);
-      if (!writeResult?.ok) {
-        throw new Error(writeResult?.message || 'Deposit mail could not be written to GuildSyncBanking.lua.');
-      }
-
       if (!socket?.connected) {
-        throw new Error('Deposit mail was written locally, but GuildSync websocket is not connected to mark it written_to_eso.');
+        throw new Error('Connect to GuildSync before writing checked-out mail to SavedVariables.');
       }
-
+      // Reserve the durable ESO handoff first. Once handed off it may be sent offline,
+      // so the backend must not automatically reassign these records.
       const response = await emitSocketWithAck('guildsync:mark-deposit-mail-written-to-eso', {
         mail_batch_id: batchId,
-        event_ids: writeResult.eventIds || records.map((record) => record.eventId).filter(Boolean),
+        event_ids: records.map(record => record.eventId).filter(Boolean),
         source: 'guildsync-frontend-client'
       }, 30000);
-
       if (!response?.ok) {
-        throw new Error(response?.message || 'Backend did not confirm deposit mail was marked written_to_eso.');
+        throw new Error(response?.message || 'Backend did not authorize the deposit mail handoff.');
+      }
+      const authorizedIds = new Set((response.records || []).map(record => String(record.eventId || record.event_id || '')));
+      const authorizedRecords = records.filter(record => authorizedIds.has(String(record.eventId)));
+      if (!authorizedRecords.length) {
+        removePendingDepositMailBatch(batchId);
+        addSystemMessage('deposit-mail-expired', 'This checkout expired or is no longer assigned to you. Its local pending batch was removed without writing to ESO.', {ttlMs:TRANSIENT_MESSAGE_TTL_MS});
+        continue;
+      }
+      const writeResult = await WriteDepositMailToGuildSyncBanking(authorizedRecords);
+      if (!writeResult?.ok) {
+        throw new Error(writeResult?.message || 'Deposit mail could not be written to GuildSyncBanking.lua. The batch remains reserved for retry.');
       }
 
       removePendingDepositMailBatch(batchId);
-      addSystemMessage('deposit-mail-written', writeResult.message || `Wrote ${records.length} deposit mail record(s) to GuildSyncBanking.lua.`, { ttlMs: TRANSIENT_MESSAGE_TTL_MS });
+      addSystemMessage('deposit-mail-written', writeResult.message || `Wrote ${authorizedRecords.length} deposit mail record(s) to GuildSyncBanking.lua.`, { ttlMs: TRANSIENT_MESSAGE_TTL_MS });
     }
 
     await refreshBankingDataFromBackend({ silent: true });
