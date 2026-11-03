@@ -1,3 +1,4 @@
+import {restoreReturningMemberRank,appendReturningMemberNotice} from './returning-member-rank.js';
 import {recordDiscordPost, recordDiscordReaction} from './community-activity.js';
 import {createLiveConfiguration} from './live-configuration.js';
 import {createOnboardingWorker} from './member-onboarding.js';
@@ -99,7 +100,9 @@ const client = new Client({
 });
 
 client.commands = new Collection();
+let applicationRankEnvironment={...process.env};
 const liveConfiguration=createLiveConfiguration({start:async env=>{
+  applicationRankEnvironment=env;
   const stops=[];
   const config=readOnboardingConfig(env);
   const worker=createOnboardingWorker({client,socket:guildSyncSocket,guildId:DISCORD_GUILD_ID,config,log:Log});
@@ -313,7 +316,7 @@ guildSyncSocket.on('guildsync:eso-guild-application-message', async (payload = {
       return;
     }
 
-    await sendEsoGuildApplicationMessage(message);
+    await sendEsoGuildApplicationMessage(message,payload);
 
     respond({
       ok: true,
@@ -791,9 +794,10 @@ function getEsoGuildApplicationsDestination() {
   return { guildId, threadId };
 }
 
-async function sendEsoGuildApplicationMessage(message) {
+async function sendEsoGuildApplicationMessage(message,payload={}) {
   const { guildId, threadId } = getEsoGuildApplicationsDestination();
 
+  if(DISCORD_GUILD_ID && String(guildId)!==String(DISCORD_GUILD_ID))throw Error('Application destination must belong to the configured Discord guild.');
   const guild = await client.guilds.fetch(guildId);
   const thread = await guild.channels.fetch(threadId);
 
@@ -801,7 +805,15 @@ async function sendEsoGuildApplicationMessage(message) {
     throw new Error(`ESO_GUILD_APPLICATIONS target ${threadId} is not a thread.`);
   }
 
-  return await thread.send(message);
+  let restoration={notice:'',roleMentions:[]};
+  if(String(payload.action||'').toLowerCase()==='accepted' && payload.returningMember
+    && String(applicationRankEnvironment.GUILDSYNC_APPLICATION_RESTORE_RANK_ENABLED ?? 'true').toLowerCase()!=='false') {
+    restoration=await restoreReturningMemberRank(guild,payload,{
+      rankRefs:applicationRankEnvironment.GUILDSYNC_VOICE_MUTE_RANK_ROLE_IDS,
+      officerRef:applicationRankEnvironment.GUILDSYNC_APPLICATION_OFFICER_ROLE || 'Consigliere',log:Log});
+  }
+  return await thread.send({content:appendReturningMemberNotice(message,restoration.notice),
+    allowedMentions:{parse:[],roles:restoration.roleMentions}});
 }
 
 async function getStartupGuild(discordClient) {
