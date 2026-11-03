@@ -19,6 +19,8 @@ import {reconcileDataRows,syncDataHTML,syncDataText} from './live-data-view.js';
 import {createConfigurationPanel,createAccordionState,wireReportAccordions} from './admin-configuration.js';
 import {createCommunityStatisticsPanel} from './community-statistics.js';
 import './style.css';
+import './member-history-shortcuts.css';
+import {renderMemberHistoryButton, createMemberHistoryActions} from './member-history-shortcuts.js';
 import splashImage from './assets/splash.png';
 import appIcon from './assets/icon.png';
 import guildSyncLogo from './assets/GuildSync-Graphic.png';
@@ -130,6 +132,9 @@ const voiceHotkey = createVoiceHotkeyController({
 });
 window.addEventListener('pagehide', () => voiceHotkey.stop());
 
+const memberHistoryActions = createMemberHistoryActions({openRoster:openRosterMemberHistory, openDiscord:openDiscordMemberHistory});
+let discordHistoryLoadGeneration = 0;
+let rosterHistorySearchGeneration = 0;
 let discordMembers = [];
 let discordRoles = [];
 let discordLastRefreshValue = null;
@@ -597,6 +602,7 @@ function closeTopOpenModal() {
     return true;
   }
   if (discordHistoryDialogOpen) {
+    discordHistoryLoadGeneration++;
     discordHistoryDialogOpen = false;
     renderGuildSyncTabLayout();
     return true;
@@ -968,13 +974,14 @@ function renderDiscordMemberDataPanel() {
         </div>
 
         <div class="discord-member-table-shell">
-          <table class="discord-member-table">
+          <table class="discord-member-table member-history-table">
             <thead>
               <tr>
                 ${renderDiscordSortableHeader('username', 'Username')}
                 ${renderDiscordSortableHeader('global_name', 'Global Name')}
                 ${renderDiscordSortableHeader('server_nickname', 'Server Nickname')}
                 ${renderDiscordSortableHeader('roles', 'Roles')}
+                <th class="member-history-header">History</th>
                 <th class="member-link-action-header">Linked</th>
               </tr>
             </thead>
@@ -1068,13 +1075,14 @@ function renderEsoRosterPanel() {
         </div>
 
         <div class="discord-member-table-shell eso-roster-table-shell">
-          <table class="discord-member-table eso-roster-table">
+          <table class="discord-member-table eso-roster-table member-history-table">
             <thead>
               <tr>
                 ${renderRosterSortableHeader('account_name', 'Account Name')}
                 ${renderRosterSortableHeader('rank', 'Rank')}
                 ${renderRosterSortableHeader('joined', 'Joined')}
                 ${renderRosterSortableHeader('notes', 'Notes', 'roster-notes-header')}
+                <th class="member-history-header">History</th>
                 ${renderRosterSortableHeader('linked', 'Discord Account Linked', 'member-link-action-header')}
               </tr>
             </thead>
@@ -1102,6 +1110,7 @@ function renderEsoRosterRow(member, index = -1) {
       <td>${renderEsoRosterRank(member.rank || '')}</td>
       <td>${escapeHtml(formatRosterJoinedDate(member.joined))}</td>
       <td class="roster-notes-cell">${renderRosterNotesButton(member)}</td>
+      <td class="member-history-cell">${renderMemberHistoryButton({kind:'roster',id:member.account_name,name:member.account_name})}</td>
       <td class="member-link-action-cell">${renderMemberLinkStatusButton({ mode: 'eso-to-discord', esoAccountName: member.account_name })}</td>
     </tr>
   `;
@@ -1220,7 +1229,7 @@ function renderEmptyEsoRosterRow() {
 
   return `
     <tr>
-      <td class="bank-empty-row" colspan="5">${escapeHtml(message)}</td>
+      <td class="bank-empty-row" colspan="6">${escapeHtml(message)}</td>
     </tr>
   `;
 }
@@ -4483,6 +4492,7 @@ async function submitRosterMemberNote() {
 }
 
 function wireEsoRosterPanel() {
+  memberHistoryActions.wire(document.querySelector('.eso-roster-panel'));
   const refreshButton = document.querySelector('#refreshRosterDataButton');
   if (refreshButton) {
     refreshButton.addEventListener('click', () => refreshRosterDataFromBackend());
@@ -4697,7 +4707,8 @@ function wireDiscordHistoryDialog() {
   const closeButton = document.querySelector('#closeDiscordHistoryButton');
   if (closeButton) {
     closeButton.addEventListener('click', () => {
-      discordHistoryDialogOpen = false;
+      discordHistoryLoadGeneration++;
+    discordHistoryDialogOpen = false;
       renderGuildSyncTabLayout();
     });
   }
@@ -4830,6 +4841,26 @@ async function searchDiscordMemberHistory(options = {}) {
   }
 }
 
+function openRosterMemberHistory(accountName) {
+  clearTimeout(rosterHistorySearchTimer);
+  rosterHistorySearchGeneration++;
+  const member = rosterMembers.find(item => item.account_name === accountName);
+  rosterHistoryMatches = [{account_name: accountName, rank: member?.rank || ''}];
+  rosterHistoryActiveMatchIndex = 0;
+  rosterHistoryDialogOpen = true;
+  return loadRosterStreamHistory(accountName, {focusHistory:true});
+}
+
+function openDiscordMemberHistory(discordID, displayName) {
+  clearTimeout(discordHistorySearchTimer);
+  discordHistorySearchGeneration++;
+  const member = discordMembers.find(item => String(item.discord_id) === discordID);
+  discordHistoryMatches = [{...member, discord_id: discordID, username: member?.username || displayName}];
+  discordHistoryActiveMatchIndex = 0;
+  discordHistoryDialogOpen = true;
+  return loadDiscordMemberHistory(discordID, displayName, {focusHistory:true});
+}
+
 async function loadDiscordMemberHistory(discordID, displayName = '', options = {}) {
   const cleanDiscordID = String(discordID || '').trim();
 
@@ -4837,6 +4868,7 @@ async function loadDiscordMemberHistory(discordID, displayName = '', options = {
     return;
   }
 
+  const generation = ++discordHistoryLoadGeneration;
   discordHistorySelectedID = cleanDiscordID;
   discordHistorySelectedName = String(displayName || cleanDiscordID).trim();
   discordHistorySearchText = discordHistorySelectedName;
@@ -4844,21 +4876,30 @@ async function loadDiscordMemberHistory(discordID, displayName = '', options = {
   discordHistoryLoading = true;
   discordHistoryError = '';
   renderGuildSyncTabLayout();
+  if (options.focusHistory) focusInputById('discordHistorySearchInput');
 
   try {
     const response = await emitSocketWithAck('guildsync:request-discord-member-history-events', { discord_id: cleanDiscordID }, 30000);
 
+    if (generation !== discordHistoryLoadGeneration || discordHistorySelectedID !== cleanDiscordID) return;
     if (!response?.ok) {
       throw new Error(response?.message || response?.error || 'Failed to load Discord member history.');
     }
 
     discordHistoryEvents = normalizeDiscordHistoryEvents(response.events);
+    discordHistoryMatches = discordHistoryMatches.map(match => match.discord_id === cleanDiscordID ? {...match, event_count:discordHistoryEvents.length} : match);
   } catch (error) {
+    if (generation !== discordHistoryLoadGeneration || discordHistorySelectedID !== cleanDiscordID) return;
+
     discordHistoryError = formatError(error);
   } finally {
+    if (generation !== discordHistoryLoadGeneration || discordHistorySelectedID !== cleanDiscordID) return;
+
     discordHistoryLoading = false;
     if (!options.keepLoading) {
+      const focusId = options.focusHistory ? document.activeElement?.id || 'discordHistorySearchInput' : '';
       renderGuildSyncTabLayout();
+      if (options.focusHistory && discordHistoryDialogOpen) focusInputById(focusId);
     }
   }
 }
@@ -4896,6 +4937,7 @@ function normalizeDiscordHistoryEvents(events) {
 }
 
 async function searchRosterRankHistory(options = {}) {
+  const generation = ++rosterHistorySearchGeneration;
   const query = rosterHistorySearchText.trim();
 
   if (!query) {
@@ -4930,6 +4972,7 @@ async function searchRosterRankHistory(options = {}) {
   try {
     const response = await emitSocketWithAck('guildsync:request-roster-rank-history', { query }, 30000);
 
+    if (generation !== rosterHistorySearchGeneration) return;
     if (!response?.ok) {
       throw new Error(response?.message || response?.error || 'Failed to search roster rank history.');
     }
@@ -4937,8 +4980,12 @@ async function searchRosterRankHistory(options = {}) {
     rosterHistoryMatches = normalizeRosterHistoryMatches(response.matches);
     rosterHistoryActiveMatchIndex = rosterHistoryMatches.length > 0 ? 0 : -1;
   } catch (error) {
+    if (generation !== rosterHistorySearchGeneration) return;
+
     rosterHistoryError = formatError(error);
   } finally {
+    if (generation !== rosterHistorySearchGeneration) return;
+
     rosterHistoryLoading = false;
     renderGuildSyncTabLayout();
     if (options.keepFocus) {
@@ -4963,6 +5010,7 @@ async function loadRosterStreamHistory(accountName, options = {}) {
   rosterHistoryLoading = true;
   rosterHistoryError = '';
   renderGuildSyncTabLayout();
+  if (options.focusHistory) focusInputById('rosterHistorySearchInput');
 
   try {
     const [response,applications] = await Promise.all([
@@ -4985,7 +5033,9 @@ async function loadRosterStreamHistory(accountName, options = {}) {
     if (generation !== rosterHistoryLoadGeneration || rosterHistorySelectedAccount !== cleanAccountName) return;
     rosterHistoryLoading = false;
     if (!options.keepLoading) {
+      const focusId = options.focusHistory ? document.activeElement?.id || 'rosterHistorySearchInput' : '';
       renderGuildSyncTabLayout();
+      if (options.focusHistory && rosterHistoryDialogOpen) focusInputById(focusId);
     }
   }
 }
@@ -6876,6 +6926,7 @@ function mergeBankingEntries(entries) {
 }
 
 function bindLiveDataActions(root) {
+  memberHistoryActions.wire(root);
   root.querySelectorAll('[data-open-member-link-dialog]').forEach(button => {
     button.addEventListener('click', () => openMemberLinkDialog(button.dataset.openMemberLinkDialog || '', button.dataset.memberLinkValue || ''));
   });
@@ -7607,6 +7658,7 @@ async function sendQueuedGuildSyncBankingUpload(bankingPayload) {
 }
 
 function wireDiscordMemberDataPanel() {
+  memberHistoryActions.wire(document.querySelector('.discord-member-panel'));
   if (activeGuildSyncTab !== 'discord-members') {
     return;
   }
@@ -8148,6 +8200,7 @@ function renderDiscordMemberRow(member) {
       : '<span class="discord-no-roles">No roles</span>'}
         </div>
       </td>
+      <td class="member-history-cell">${renderMemberHistoryButton({kind:'discord',id:member.discord_id,name:displayName})}</td>
       <td class="member-link-action-cell">${renderMemberLinkStatusButton({ mode: 'discord-to-eso', discordUserId: member.discord_id })}</td>
     </tr>
   `;
@@ -8160,7 +8213,7 @@ function renderEmptyDiscordMemberRow() {
 
   return `
     <tr>
-      <td colspan="5" class="discord-empty-row">${escapeHtml(message)}</td>
+      <td colspan="6" class="discord-empty-row">${escapeHtml(message)}</td>
     </tr>
   `;
 }
