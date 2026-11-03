@@ -46,12 +46,12 @@ test('verification displays requested tickets and logs the search and response',
  }
 });
 
-test('verification requires the exact Consigliere role and rejects account links', async () => {
- for (const role of ['Capo', 'Member', 'consigliere', 'Caporegieme']) {
+test('verification requires an authorized raffle administrator role and rejects account links', async () => {
+ for (const role of ['Capo', 'Member', 'Caporegieme']) {
   const f = fixture({ verify: 'Alice', role });
   await execute(f.interaction, f.socket, f.log);
   assert.equal(f.requests.length, 0);
-  assert.match(f.replies[0].content, /Consigliere/);
+  assert.match(f.replies[0].content, /raffle administrator/);
  }
  const f = fixture({ verify: 'https://example.com' });
  await execute(f.interaction, f.socket, f.log);
@@ -66,4 +66,15 @@ test('ordinary members can use tickets and failures are logged privately', async
  await execute(f.interaction, f.socket, f.log);
  assert.match(f.replies.at(-1).content, /unavailable/);
  assert.ok(f.logs.some(line => line.includes('failed')));
+});
+
+
+test('General supports custom raffle administrators by role name or ID and explicit denial',async t=>{
+ const before=process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES;
+ t.after(()=>before===undefined?delete process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES:process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES=before);
+ process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES='Officers,123456';
+ let f=fixture({verify:'Alice',role:'officers'});await execute(f.interaction,f.socket);assert.ok(f.requests.length>0);
+ f=fixture({verify:'Alice',role:'officers'});f.interaction.member.roles.cache=[{id:'123456',name:'Renamed'}];await execute(f.interaction,f.socket);assert.ok(f.requests.length>0);
+ f=fixture({verify:'Alice',role:'officers'});f.interaction.member.roles.cache=[{name:'Consigliere'}];await execute(f.interaction,f.socket);assert.equal(f.requests.length,0);
+ process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES='';f=fixture({verify:'Alice',role:'officers'});await execute(f.interaction,f.socket);assert.equal(f.requests.length,0);
 });

@@ -1,0 +1,37 @@
+name: GuildSync General checks
+on:
+  pull_request:
+    branches: [Guildsync-General]
+  push:
+    branches: [Guildsync-General]
+permissions:
+  contents: read
+concurrency:
+  group: general-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require current production ancestry
+        run: |
+          if ! git merge-base --is-ancestor origin/master HEAD; then
+            echo "::error::Forward-port current master into Guildsync-General through a reviewed sync PR, then rerun General checks. Preserve merge ancestry."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --prefix NodeJS/GuildSync-Backend-Server
+      - run: npm ci --prefix NodeJS/GuildSync-Discord-Bot
+      - name: Backend portability and raffle authorization tests
+        working-directory: NodeJS/GuildSync-Backend-Server
+        run: node --test raffle-permissions.test.js raffle-admin-socket.test.js raffle-socket.test.js
+      - name: Discord command and permission tests
+        working-directory: NodeJS/GuildSync-Discord-Bot
+        run: node --test src/commands/tickets.test.js src/commands/gsa-refresh.test.js src/commands/gsr.test.js

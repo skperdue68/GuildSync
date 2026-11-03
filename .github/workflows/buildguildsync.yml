@@ -17,6 +17,8 @@
 
   jobs:
     build:
+      # General branch: production publication is deliberately disabled.
+      if: ${{ false }}
       name: Build ${{ matrix.name }}
       runs-on: ${{ matrix.os }}
 
@@ -290,6 +292,8 @@
 
 
     server:
+      # General branch: production publication is deliberately disabled.
+      if: ${{ false }}
       name: Package server, web and bot
       runs-on: ubuntu-latest
       steps:
@@ -342,6 +346,8 @@
 
 
     publish-downloads:
+      # General branch: production publication is deliberately disabled.
+      if: ${{ false }}
       name: Publish installer ZIPs and release versions
       needs: [build, server]
       uses: ./.github/workflows/publishguildsyncdownloads.yml

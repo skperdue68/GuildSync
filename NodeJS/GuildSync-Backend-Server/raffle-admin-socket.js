@@ -1,14 +1,18 @@
+import {hasRaffleAdminRole} from './raffle-permissions.js';
 import { loadArchiveCells } from './raffle-archive-cells.js';
 import { formatArchiveMessage } from './raffle-archive-message.js';
 import { loadRaffleResults, loadFormulaTemplates, saveFormulaTemplates } from './raffle-results.js';
 import { refreshBankingEntriesToGoogleSheets, googleSheetsBankingConfig, exportLog, coordinateSpreadsheetOperation } from './google-sheets-banking-sync.js';
 
-export async function isConsigliere(db, discordUserId) {
+export async function isRaffleAdministrator(db, discordUserId, env = process.env) {
   if (typeof discordUserId !== 'string' || !discordUserId) return false;
-  const [rows] = await db.execute(`SELECT r.role_name FROM discord_member_roles m
+  const [rows] = await db.execute(`SELECT r.role_id, r.role_name FROM discord_member_roles m
     JOIN discord_roles r ON r.role_id = m.role_id WHERE m.discord_id = ?`, [discordUserId]);
-  return rows.some(row => row.role_name === 'Consigliere');
+  return hasRaffleAdminRole(rows, env);
 }
+
+// Compatibility for existing integrations; the configured policy applies.
+export const isConsigliere = isRaffleAdministrator;
 
 export function entriesForRafflePeriods(entries, periods, asOf) {
   return entries.filter(entry => periods.some(period => entry.type === period.type &&
@@ -17,7 +21,7 @@ export function entriesForRafflePeriods(entries, periods, asOf) {
 }
 
 export function registerRaffleRefreshSocket(socket, db, { getRaffleRefreshSelection, getBankingDataJSON,
-  authorize = isConsigliere, refreshEntries = refreshBankingEntriesToGoogleSheets, log = exportLog, loadResults = loadArchiveCells, loadTemplates = loadFormulaTemplates, historical, coordinate = coordinateSpreadsheetOperation }) {
+  authorize = isRaffleAdministrator, refreshEntries = refreshBankingEntriesToGoogleSheets, log = exportLog, loadResults = loadArchiveCells, loadTemplates = loadFormulaTemplates, historical, coordinate = coordinateSpreadsheetOperation }) {
   let running = false;
   socket.on('guildsync:raffle-refresh', async (payload = {}, callback) => {
     if (typeof callback !== 'function') return;
@@ -27,7 +31,7 @@ export function registerRaffleRefreshSocket(socket, db, { getRaffleRefreshSelect
     if (running) { callback({ ok: false, message: 'A raffle refresh is already running. Please wait for it to finish.' }); return; }
     running = true;
     try {
-      if (!await authorize(db, payload.discordUserId)) throw new Error('Only users with the exact Consigliere role can refresh raffles. Check Discord role synchronization if necessary.');
+      if (!await authorize(db, payload.discordUserId)) throw new Error('An authorized raffle administrator role is required. Check role configuration and Discord synchronization.');
       if (!['plan', 'export', 'update', 'save'].includes(payload.action)) throw new Error('Unknown raffle refresh action.');
       if (['update','save'].includes(payload.action) && typeof payload.date !== 'string') throw Error('Update requires a raffle date in MMDDYY format.');
       let selection = getRaffleRefreshSelection(payload.date, undefined, payload.boundaryChoices);
@@ -67,7 +71,7 @@ export function registerRaffleRefreshSocket(socket, db, { getRaffleRefreshSelect
   });
 }
 
-export function registerRaffleManagementSocket(socket, db, { sheets, authorize = isConsigliere, log = exportLog }) {
+export function registerRaffleManagementSocket(socket, db, { sheets, authorize = isRaffleAdministrator, log = exportLog }) {
   let running = false;
   socket.on('guildsync:raffle-manage', async (payload = {}, callback) => {
     if (typeof callback !== 'function') return;
@@ -75,7 +79,7 @@ export function registerRaffleManagementSocket(socket, db, { sheets, authorize =
     if (running) return callback({ ok: false, message: 'A raffle operation is already running.' });
     running = true;
     try {
-      if (!await authorize(db, payload.discordUserId)) throw new Error('Only users with the exact Consigliere role can manage raffle sheets.');
+      if (!await authorize(db, payload.discordUserId)) throw new Error('An authorized raffle administrator role is required to manage raffle sheets.');
       if (!['clear', 'archive'].includes(payload.action)) throw new Error('Unknown raffle action.');
       if (!googleSheetsBankingConfig().enabled || !sheets) throw new Error('Enable Google Sheets on the backend first.');
       const requestedBy = String(payload.requestedBy || '').trim().slice(0, 100);
