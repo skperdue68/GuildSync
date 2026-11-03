@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Keep ancestry for sync checks without downloading old installer ZIP blobs.
+          filter: blob:none
           persist-credentials: false
       - name: Require current production ancestry
         run: |
