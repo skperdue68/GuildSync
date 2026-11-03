@@ -25,6 +25,8 @@ test('never downgrades a higher current rank and repeats are idempotent',async()
  const g=guild({existing:['1','4']});const data={applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:['100']}};
  const first=await restoreReturningMemberRank(g,data);await restoreReturningMemberRank(g,data);
  assert.deepEqual(g.calls,[['remove',['1']]]);assert.match(first.notice,/Capo/);
+ assert.match(first.notice,/verify which rank they should hold in ESO/);
+ assert.doesNotMatch(first.notice,/must also promote/);
 });
 test('ambiguous exact-name matches never grant roles; permission failures do not claim restoration',async()=>{
  const g=guild({names:['Alice','Alice']});
@@ -74,4 +76,14 @@ test('unverified and lower-ranked uploaders cannot cause a role grant from uploa
  assert.match(unprivileged.notice,/does not currently have officer rank/);assert.equal(g.calls.length,0);
  const aboveOfficer=await restoreReturningMemberRank(g,{...data,returningMember:{...data.returningMember,actorDiscordId:'999'}});
  assert.match(aboveOfficer.notice,/above the uploader/);assert.equal(g.calls.length,0);
+});
+
+test('already-held Soldier rank is named and asks officers to verify ESO rather than assuming promotion',async()=>{
+ const g=guild({existing:['3']});
+ const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:['100']}});
+ assert.equal(g.calls.length,0);
+ assert.match(result.notice,/currently holds Discord rank.*Soldiers/);
+ assert.match(result.notice,/verify which rank they should hold in ESO/);
+ assert.doesNotMatch(result.notice,/must also promote/);
+ assert.deepEqual(result.roleMentions,['5']);
 });

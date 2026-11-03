@@ -16,7 +16,7 @@ A member who already holds a higher guild rank keeps it; the bot removes only lo
 Decorative/unrecognized roles are retained. Singular/plural guild rank names are matched consistently (for example Soldier → Soldiers).
 The configured **Guild rank roles, lowest to highest** hierarchy (`GUILDSYNC_VOICE_MUTE_RANK_ROLE_IDS`) is honored even if voice muting is disabled.
 
-The application post notes the returning member and restored/retained Discord rank, and asks an officer to promote them in ESO as well. It tags the Consigliere role.
+The application post names the returning member’s restored or current Discord rank and asks an officer to verify which rank they should hold in ESO, updating it if needed. It tags the Consigliere role. If the member already holds that Discord rank, the post says so rather than claiming a new restoration.
 If identity, roles, or bot permissions prevent restoration, the post explicitly requests manual review instead of claiming success.
 Members not currently in Discord cannot receive a role; this feature reports that condition rather than queuing an automatic restoration for a future join.
 
