@@ -46,3 +46,40 @@ test('database failure returns a safe empty history result',async()=>{
   assert.equal(response.ok,false);assert.deepEqual(response.records,[]);
   assert.doesNotMatch(response.message,/secret/);
 });
+
+test('broadcast ACK identifies one application rather than all applications for an account',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const source=readFileSync(new URL('./guildsync-backend-server.js',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/await markGuildSyncApplicationBroadcasted\(applicationDB, record.applicant_account\)/);
+  const {default:vm}=await import('node:vm');
+  const actions=readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
+  const start=actions.indexOf('export async function markGuildSyncApplicationRecordBroadcasted('),end=actions.indexOf('export async function getGuildSyncApplicationByApplicantAccount(',start);
+  const context=vm.createContext({});
+  vm.runInContext(actions.slice(start,end).replace('export async','async'),context);
+  const {markGuildSyncApplicationRecordBroadcasted}=context;
+  let query,params;
+  await markGuildSyncApplicationRecordBroadcasted({execute:async(sql,args)=>{query=sql;params=args;}},'@Alice','2000');
+  assert.match(query,/AND application_timestamp = \?/);
+  assert.deepEqual([...params],['@Alice','2000']);
+});
+
+test('import keeps separate application timestamps for repeat joins and same-second captures',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const {default:vm}=await import('node:vm');
+  const source=readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
+  const start=source.indexOf('function normalizeApplicationRecord('),end=source.indexOf('export async function getGuildSyncApplicationsByApplicantSearch(',start);
+  const context=vm.createContext({validateEsoGuildImport(){}});
+  vm.runInContext(source.slice(start,end).replace('export async','async'),context);
+  const stored=new Map();
+  await context.recordGuildSyncApplications({execute:async(sql,args)=>{
+    stored.set(`${args[0]}:${args[2]}`,args[1]);return [{}];
+  }},[
+    {applicantAccount:'@Alice',capturedAt:1000,applicationText:'First join'},
+    {applicantAccount:'@Alice',capturedAt:2000,applicationText:'Second join'},
+    {applicantAccount:'@Alice',capturedAt:3000,applicationText:'Third join'},
+    {applicantAccount:'@Alice',capturedAt:'3000.000001',applicationText:'Separate same-second capture'}
+  ]);
+  assert.equal(stored.size,4);
+  assert.equal(stored.get('@Alice:1000'),'First join');
+  assert.equal(stored.get('@Alice:3000.000001'),'Separate same-second capture');
+});

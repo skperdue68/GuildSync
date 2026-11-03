@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,6 +125,7 @@ func (a *App) CollectGuildSyncApplicationsData(event GuildSyncSavedVarsFileModif
 		"account_name":  accountName,
 		"records":       records,
 		"records_count": len(records),
+		"snapshot_hash": fmt.Sprintf("%x", sha256.Sum256(originalBytes)),
 	}
 
 	return baseResult
@@ -132,7 +134,7 @@ func (a *App) CollectGuildSyncApplicationsData(event GuildSyncSavedVarsFileModif
 // CommitGuildSyncApplicationsData clears only the exported ["records"] table
 // after the backend/Discord bot acknowledges receipt. A backup copy is written
 // first so application data is not silently lost.
-func (a *App) CommitGuildSyncApplicationsData(filePath string, fileName string) GuildSyncApplicationsDataResult {
+func (a *App) CommitGuildSyncApplicationsData(filePath string, fileName string, snapshotHash string) GuildSyncApplicationsDataResult {
 	watchFile := getSavedVarsWatchFileByKey("applications")
 
 	fileName = filepath.Base(strings.TrimSpace(fileName))
@@ -167,6 +169,13 @@ func (a *App) CommitGuildSyncApplicationsData(filePath string, fileName string) 
 	originalBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		baseResult.Message = fmt.Sprintf("Applications SavedVariables file could not be read for cleanup: %v", err)
+		return baseResult
+	}
+
+	// Never clear a newer ESO save that was not part of the acknowledged batch.
+	if snapshotHash == "" || snapshotHash != fmt.Sprintf("%x", sha256.Sum256(originalBytes)) {
+		baseResult.Data = map[string]interface{}{"cleanup_deferred": true}
+		baseResult.Message = "Applications SavedVariables changed after collection. Pending records were preserved; collect and send them again."
 		return baseResult
 	}
 

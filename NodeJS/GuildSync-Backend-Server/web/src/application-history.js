@@ -3,10 +3,10 @@ const APPLICATION_JOIN_MATCH_SECONDS=7*24*60*60;
 const timestamp=value=>{
   const raw=String(value??'').trim();
   if(!raw)return NaN;
-  return /^\d+$/.test(raw)?Number(raw):Date.parse(raw)/1000;
+  return /^\d+(?:\.\d+)?$/.test(raw)?Number(raw):Date.parse(raw)/1000;
 };
 
-// The import has no join-event foreign key. Match nearby captures once, nearest first.
+// The import has no join-event foreign key. Match accepted captures once, nearest first.
 export function matchApplicationsToJoins(events,records) {
   const candidates=[];
   events.forEach((event,eventIndex)=>{
@@ -14,11 +14,13 @@ export function matchApplicationsToJoins(events,records) {
     const joined=timestamp(event.timestamp);
     if(!Number.isFinite(joined)||joined<=0)return;
     records.forEach((record,recordIndex)=>{
+      const action=String(record.application_action??'').trim().toLowerCase();
+      if(action && action!=='accepted' && action!=='processed')return;
       const captured=timestamp(record.application_timestamp),distance=Math.abs(joined-captured);
-      if(captured>0 && distance<=APPLICATION_JOIN_MATCH_SECONDS)candidates.push({eventIndex,recordIndex,distance});
+      if(captured>0 && distance<=APPLICATION_JOIN_MATCH_SECONDS)candidates.push({eventIndex,recordIndex,distance,legacy:action!=='accepted'});
     });
   });
-  candidates.sort((a,b)=>a.distance-b.distance || a.eventIndex-b.eventIndex || a.recordIndex-b.recordIndex);
+  candidates.sort((a,b)=>Number(a.legacy)-Number(b.legacy) || a.distance-b.distance || a.eventIndex-b.eventIndex || a.recordIndex-b.recordIndex);
   const matches=new Map(),used=new Set();
   for(const pair of candidates) {
     if(matches.has(pair.eventIndex)||used.has(pair.recordIndex))continue;

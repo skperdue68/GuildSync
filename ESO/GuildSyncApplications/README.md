@@ -22,7 +22,20 @@ deleted templates stay deleted. If all templates are disabled or deleted, the
 Classic Godfather message/email is used as the built-in fallback.
 
 Install the updated `GuildSyncApplications` add-on folder and use `/reloadui`.
-No backend, Discord bot, `.env`, or Google Apps Script changes are needed.
+The add-on now retains separate decisions for an account that leaves and rejoins,
+including multiple pending captures before the next upload. Existing account-keyed
+SavedVariables entries remain readable; failed acceptances preserve older entries.
+Install this add-on update to protect future captures. Previously overwritten text
+cannot be recovered unless it survives in a SavedVariables backup or the database.
+
+Deploy the matching backend and web/desktop client update to show the nearest
+accepted application once per join (within seven days) and acknowledge each
+application separately. Missing-action and legacy `processed` records remain eligible after confirmed
+acceptances are matched; rejected
+applications are excluded. Join matching is approximate because ESO exports no
+application-to-join identifier. Desktop cleanup preserves pending data if ESO saves
+the file again while an upload awaits confirmation; a fresh collection can retry.
+No `.env`, Discord bot, or Google Apps Script changes are needed.
 
 Developer check: from the repository root, run
 `lua tools/applications-welcome-defaults.test.lua` and

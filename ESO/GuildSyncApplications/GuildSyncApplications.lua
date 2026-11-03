@@ -1746,7 +1746,25 @@ function GSA:SaveApplicationRecord(record, applicantKey)
   if self:EnsureSettings().captureApplicationData == false then return end
   self.saved.records = self.saved.records or {}
 
-  self.saved.records[applicantKey] = record
+  -- Retain every decision until upload, including legacy account-keyed entries.
+  -- A fractional suffix also keeps the backend account/timestamp key unique
+  -- when two decisions for this account are captured in the same second.
+  local capturedAt = record.capturedAt
+  local sequence = 0
+  local function TimestampExists(value)
+    for _, existing in pairs(self.saved.records) do
+      if existing.applicantAccount == record.applicantAccount and
+          tostring(existing.capturedAt) == tostring(value) then return true end
+    end
+    return false
+  end
+  while TimestampExists(record.capturedAt) do
+    sequence = sequence + 1
+    record.capturedAt = tostring(capturedAt) .. "." .. string.format("%06d", sequence)
+  end
+  local recordKey = applicantKey .. "_" .. tostring(record.capturedAt)
+  while self.saved.records[recordKey] do recordKey = recordKey .. "_" end
+  self.saved.records[recordKey] = record
 
   Chat(string.format(
     "|c66ff66GuildSyncApplications:|r captured %s application for %s",
@@ -1813,10 +1831,9 @@ function GSA:SaveApplicationDecision(action, guildId, index, declineMessage, bla
   -- application record or triggering welcome chat/mail side effects.
   zo_callLater(function()
     if not IsAccountMemberInGuild(record.guildId, record.applicantAccount) then
-      GSA:RemoveApplicationRecord(applicantKey)
       Chat("|cffff66GuildSyncApplications:|r accepted application for " ..
         (record.applicantAccount ~= "" and record.applicantAccount or "unknown applicant") ..
-        " was not confirmed in the guild roster after 2 seconds. Record removed and welcome actions skipped.")
+        " was not confirmed in the guild roster after 2 seconds. Record not saved and welcome actions skipped.")
       return
     end
 
