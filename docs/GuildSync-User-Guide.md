@@ -1,5 +1,7 @@
 # GuildSync user guide
 
+If GuildSync says your desktop version is no longer supported, use **Download latest GuildSync**, install the update, and restart. GuildSync stops its server connection and hides member/banking data until a supported desktop is installed. See [desktop compatibility](GuildSync-Minimum-Desktop-Version.md).
+
 Updated October 5, 2026. This guide covers the commands and systems in the current source, including optional member onboarding. A feature becomes available on your server after its changes are deployed and its administrator enables any required settings.
 
 For setup, every environment setting, database details, and troubleshooting, see the [detailed reference](GuildSync-Detailed-Help.md).

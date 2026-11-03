@@ -9173,11 +9173,13 @@ function connectSocket() {
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000
+    reconnectionDelayMax: 5000,
+    auth: {client_type:'web',version:GUILDSYNC_APP_VERSION,platform:getGuildSyncClientPlatform()}
   };
 
   if (guildSyncSession?.token) {
     socketOptions.auth = {
+      ...socketOptions.auth,
       token: guildSyncSession.token
     };
   }

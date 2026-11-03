@@ -10,7 +10,7 @@ function context(path, running = false) {
   const names = ['getBankingMailAttentionCount', 'shouldShowBankingMailTabAttention', 'getUnsentDepositMailCount', 'updateBankingDataView', 'handleBankingDataUpdated', 'refreshESORunningStatus'];
   const functions = names.map(name => source.match(new RegExp(`(?:async )?function ${name}\\([^]*?(?=\\n(?:async )?function |$)`))?.[0] || '').join('\n');
   const tab = {innerHTML: 'stale'};
-  const ctx = {
+  const ctx = {desktopSupport:{blocked:false},desktopVersionAccepted:true,
     bankingEntries: [{eventId:'1',type:'biweekly',mailStatus:'unsent'}],
     esoRunningStatus: {running},
     activeGuildSyncTab:'settings', canEditGuildSyncData:()=>true,

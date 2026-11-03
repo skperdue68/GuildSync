@@ -20,6 +20,7 @@ import { readReleaseVersion } from './release-version.js';
 import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
+import {createDesktopVersionPolicy} from './desktop-version-policy.js';
 import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import fs from 'node:fs';
 import { registerRaffleSocket, registerArchiveSocket } from './raffle-socket.js';
@@ -517,11 +518,12 @@ async function broadcastUserAdministrationCounts() {
     if(!admins.length)return;
     const {pending_count}=await userAdministration.pending(admins[0].discord_user_id);
     const ids=new Set(admins.map(row=>row.discord_user_id));
-    for(const client of io.sockets.sockets.values())if(client.guildSyncAuthenticated&&client.guildSyncAuthType!=='discord-bot'&&client.guildSyncAuthType!=='voice-mute'&&ids.has(client.guildSyncUser?.discord_user_id))client.emit('guildsync:users-changed',{pending_count});
+    for(const client of io.sockets.sockets.values())if(client.guildSyncVersionAdmitted&&client.guildSyncAuthenticated&&client.guildSyncAuthType!=='discord-bot'&&client.guildSyncAuthType!=='voice-mute'&&ids.has(client.guildSyncUser?.discord_user_id))client.emit('guildsync:users-changed',{pending_count});
   }catch(error){Log('Could not refresh pending GuildSync account counts: '+error.message);}
 }
 
 async function sendCurrentAccountProfile(socket) {
+  if(!socket.guildSyncVersionAdmitted)return;
   if(!socket.guildSyncAuthenticated||socket.guildSyncAuthType==='discord-bot'||socket.guildSyncAuthType==='voice-mute'||!socket.guildSyncUser?.discord_user_id)return;
   try {
     const [rows]=await loginDB.execute('SELECT discord_user_id, username, global_name, guild_member_name, email, avatar, role FROM guildsync_users WHERE discord_user_id = ? AND allowed = 1 LIMIT 1',[socket.guildSyncUser.discord_user_id]);
@@ -548,7 +550,15 @@ function registerVoiceForSocket(socket){
   });
 
 }
-io.on('connection', (socket) => {
+const desktopVersionPolicy=createDesktopVersionPolicy({
+  minimum:process.env.GUILDSYNC_MIN_DESKTOP_VERSION,
+  latest:CURRENT_GUILDSYNC_CLIENT_VERSION,
+  download:getGuildSyncClientDownload,
+  fallbackUrl:process.env.GUILDSYNC_DESKTOP_UPDATE_URL
+});
+io.on('connection',socket=>desktopVersionPolicy.admit(socket,()=>registerGuildSyncConnection(socket)));
+
+function registerGuildSyncConnection(socket) {
   if(registerVoiceOnlyConnection(socket,registerVoiceForSocket))return;
   registerDiscordGuildOrigin(socket, Log);
   registerCommunityStatisticsSocket(socket,{
@@ -1459,6 +1469,8 @@ io.on('connection', (socket) => {
 
 
   socket.on('guildsync:client-version', (payload = {}) => {
+    const compatibility=desktopVersionPolicy.status({...payload,client_type:['discord-bot','voice-mute'].includes(socket.guildSyncAuthType)?'web':socket.guildSyncClientIdentity?.client_type || payload.client_type});
+    if(!compatibility.supported)return desktopVersionPolicy.reject(socket,compatibility);
     const clientVersion = String(payload.version || '').trim();
     const clientPlatform = normalizeClientPlatform(payload.platform || payload.os || payload.operating_system);
     const download = getGuildSyncClientDownload(clientPlatform);
@@ -1466,6 +1478,8 @@ io.on('connection', (socket) => {
 
     socket.emit('guildsync:version-status', {
       ok: true,
+      supported: true,
+      minimum_desktop_version: compatibility.minimum_desktop_version,
       client_version: clientVersion,
       latest_version: download?.version || null,
       release_version: CURRENT_GUILDSYNC_CLIENT_VERSION,
@@ -2660,7 +2674,7 @@ io.on('connection', (socket) => {
 
     Log(`Disconnected: ${socket.id} => ${name} ${reason}`);
   });
-});
+}
 
 server.listen(PORT, HOST, () => {
   Log(`GuildSync auth server listening at http://${HOST}:${PORT}`);

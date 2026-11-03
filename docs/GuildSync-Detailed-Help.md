@@ -1,5 +1,7 @@
 # GuildSync detailed help and operator reference
 
+For minimum supported desktop versions, upgrade links, rollout order, and older-client limitations, see [Minimum desktop version](GuildSync-Minimum-Desktop-Version.md).
+
 For the optional Windows voice shortcut, configuration, database tables and recovery rules, see [Voice Channel Mute](GuildSync-Voice-Mute.md).
 
 Updated October 5, 2026. This reference follows the current implementation, including optional onboarding and voice hotkeys. Deploy the relevant merged changes before relying on a feature. Application/add-on versions are managed by `tools/update-version.go`; deploying backend/bot changes is separate from packaging a desktop release.
