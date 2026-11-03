@@ -87,7 +87,6 @@ import {
   recordGuildSyncApplications,
   getGuildSyncApplicationsByApplicantSearch,
   getPendingGuildSyncApplicationBroadcasts,
-  markGuildSyncApplicationBroadcasted,
   markGuildSyncApplicationRecordBroadcasted,
   parseGuildSyncBankingSavedVarsLua,
   parseGuildSyncRosterSavedVarsLua,
@@ -2740,7 +2739,7 @@ function collectGuildSyncApplicationRecords(payload = {}) {
 }
 
 function buildGuildSyncApplicationDiscordMessage(record = {}) {
-  const timestamp = Number(record.application_timestamp || record.capturedAt || Math.floor(Date.now() / 1000));
+  const timestamp = Math.floor(Number(record.application_timestamp || record.capturedAt || Math.floor(Date.now() / 1000)));
   const officer = String(record.officer_processing || record.officerAccount || 'Unknown officer').trim() || 'Unknown officer';
   const action = String(record.application_action || record.action || 'processed').trim() || 'processed';
   const applicant = String(record.applicant_account || record.applicantAccount || 'Unknown applicant').trim() || 'Unknown applicant';
@@ -2807,7 +2806,7 @@ async function broadcastPendingGuildSyncApplications() {
     );
 
     if (botResponse?.ok) {
-      await markGuildSyncApplicationBroadcasted(applicationDB, record.applicant_account);
+      await markGuildSyncApplicationRecordBroadcasted(applicationDB, record.applicant_account, record.application_timestamp);
       sent += 1;
     } else {
       failed += 1;

@@ -42,14 +42,14 @@ end)
 check('missing flag captures for existing users', function()
   addon.saved = {settings = {}}
   addon:SaveApplicationDecision('rejected', 1, 1)
-  assert(addon.saved.records['@applicant'].applicationText == 'Please invite me')
+  assert(select(2, next(addon.saved.records)).applicationText == 'Please invite me')
   assert(addon:EnsureSettings().captureApplicationData == true)
 end)
 check('enabled captures confirmed acceptance and sends welcomes', function()
   addon.saved = {settings = {captureApplicationData = true}}
   addon:SaveApplicationDecision('accepted', 1, 1)
   drain()
-  assert(addon.saved.records['@applicant'].action == 'accepted')
+  assert(select(2, next(addon.saved.records)).action == 'accepted')
   assert(mail == 1 and chat == 1)
 end)
 check('disabled preserves existing records across all decisions and welcomes', function()
@@ -75,6 +75,29 @@ check('disabled does not create a records table', function()
   addon.saved = {settings = {captureApplicationData = false}}
   addon:SaveApplicationDecision('rejected', 1, 1)
   assert(addon.saved.records == nil)
+end)
+check('repeated decisions preserve legacy and distinct same-account captures', function()
+  local old = {action = 'accepted', capturedAt = 1699999999, applicationText = 'First join'}
+  addon.saved = {settings = {}, records = {['@applicant'] = old}}
+  addon:SaveApplicationDecision('rejected', 1, 1)
+  addon:SaveApplicationDecision('accepted', 1, 1)
+  drain()
+  local count, timestamps = 0, {}
+  for _, record in pairs(addon.saved.records) do
+    count = count + 1
+    assert(not timestamps[tostring(record.capturedAt)], 'backend identity must be unique')
+    timestamps[tostring(record.capturedAt)] = true
+  end
+  assert(count == 3, 'three same-account captures survive even within one second')
+  assert(addon.saved.records['@applicant'] == old)
+  rosterMember = false
+  addon:SaveApplicationDecision('accepted', 1, 1)
+  drain()
+  assert(addon.saved.records['@applicant'] == old, 'unconfirmed accept cannot delete prior history')
+  count = 0
+  for _ in pairs(addon.saved.records) do count = count + 1 end
+  assert(count == 3)
+  rosterMember = true
 end)
 check('settings toggle updates saved capture flag', function()
   addon.saved = {settings = {}}

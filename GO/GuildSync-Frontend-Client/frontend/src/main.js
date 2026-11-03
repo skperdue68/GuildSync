@@ -5471,11 +5471,19 @@ async function sendQueuedGuildSyncApplicationsUpload(applicationsPayload) {
 
   const commitResult = await CommitGuildSyncApplicationsData(
     applicationsPayload.file_path || '',
-    applicationsPayload.file_name || ''
+    applicationsPayload.file_name || '',
+    applicationsPayload.data?.snapshot_hash || ''
   );
 
-  if (!commitResult?.ok) {
+  if (!commitResult?.ok && !commitResult?.data?.cleanup_deferred) {
     throw new Error(commitResult?.message || 'Backend confirmed application data, but the SavedVariables file could not be cleared.');
+  }
+
+  if (commitResult?.data?.cleanup_deferred) {
+    setTimeout(() => collectAndSendGuildSyncApplicationsData({
+      filePath: applicationsPayload.file_path || '',
+      fileName: applicationsPayload.file_name || ''
+    }), 0);
   }
 
   addSystemMessage('applications-data-sent', `Sent ${sentCount} application record${sentCount === 1 ? '' : 's'} to GuildSync backend.`, {
@@ -5486,7 +5494,7 @@ async function sendQueuedGuildSyncApplicationsUpload(applicationsPayload) {
 }
 
 function formatGuildSyncApplicationDiscordMessage(record = {}) {
-  const timestamp = Number(record.capturedAt || Math.floor(Date.now() / 1000));
+  const timestamp = Math.floor(Number(record.capturedAt || Math.floor(Date.now() / 1000)));
   const officer = String(record.officerAccount || 'Unknown officer').trim() || 'Unknown officer';
   const action = String(record.action || 'processed').trim() || 'processed';
   const applicant = String(record.applicantAccount || record.recordKey || 'Unknown applicant').trim() || 'Unknown applicant';
