@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {getReturningMemberHistory} from './returning-member-history.js';
+test('accepted application uses exact ESO account and latest promotion before acceptance',async()=>{
+ const calls=[];
+ const db={execute:async(sql,args)=>{calls.push([sql,args]);return sql.includes('guildsync_roster_events')?[[{rank_name:'Soldier',event_timestamp:'100'}]]:[[{discord_user_id:'123'}]];}};
+ const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:'200',submitted_by_discord_id:'777'});
+ assert.equal(result.rankName,'Soldier');assert.deepEqual(result.discordUserIds,['123']);
+ assert.equal(result.actorDiscordId,'777');
+ assert.match(calls[0][0],/event_type = 'promoted'/);assert.match(calls[0][0],/ORDER BY CAST\(event_timestamp AS UNSIGNED\) DESC/);
+ assert.match(calls[0][0],/LIMIT 1/);assert.doesNotMatch(calls[0][0],/LIKE/);
+ assert.deepEqual(calls[0][1],['Alice',200]);
+});
+test('application import captures the authenticated submitter and ignores a forged record submitter',async()=>{
+ const source=fs.readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
+ const a=source.indexOf('function normalizeApplicationRecord('),b=source.indexOf('export async function getGuildSyncApplicationsByApplicantSearch(',a);
+ const ctx=vm.createContext({validateEsoGuildImport(){}});
+ vm.runInContext(source.slice(a,b).replace('export async','async'),ctx);
+ const writes=[];const db={execute:async(sql,args)=>{writes.push(args);return [{}];}};
+ const records=[{applicant_account:'Alice',application_timestamp:200,application_action:'accepted',submitted_by_discord_id:'forged'}];
+ await ctx.recordGuildSyncApplications(db,records,{submittedBy:'777'});
+ assert.equal(writes[0].at(-1),'777');assert.ok(!writes[0].includes('forged'));
+ await ctx.recordGuildSyncApplications(db,records);
+ assert.equal(writes[1].at(-1),null);
+});
+test('declined applications, first-time members, and missing dates do not restore roles',async()=>{
+ let queries=0;const db={execute:async()=>{queries++;return [[]];}};
+ assert.equal(await getReturningMemberHistory(db,{application_action:'declined'}),null);
+ assert.equal(await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice'}),null);
+ assert.equal(queries,0);
+ assert.equal(await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice',application_timestamp:200}),null);
+ assert.equal(queries,1);
+});

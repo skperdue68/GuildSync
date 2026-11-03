@@ -365,6 +365,7 @@ async function initializeSchema(db) {
 
 
   await addColumnIfMissing(db, 'guildsync_applications', 'discord_broadcast', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await addColumnIfMissing(db, 'guildsync_applications', 'submitted_by_discord_id', 'VARCHAR(32) DEFAULT NULL');
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS discord_roles (
@@ -711,7 +712,7 @@ function normalizeApplicationRecord(record = {}) {
   };
 }
 
-export async function recordGuildSyncApplications(applicationDB, records = []) {
+export async function recordGuildSyncApplications(applicationDB, records = [], {submittedBy} = {}) {
   validateEsoGuildImport('applications', {records: Array.isArray(records) ? records : [records]});
   const normalizedRecords = (Array.isArray(records) ? records : [records])
     .map(normalizeApplicationRecord)
@@ -732,10 +733,12 @@ export async function recordGuildSyncApplications(applicationDB, records = []) {
           application_action,
           decline_message,
           blacklist_message,
+          submitted_by_discord_id,
           discord_broadcast
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
         ON DUPLICATE KEY UPDATE
+          submitted_by_discord_id = COALESCE(VALUES(submitted_by_discord_id), submitted_by_discord_id),
           application_text = VALUES(application_text),
           application_timestamp = VALUES(application_timestamp),
           officer_processing = VALUES(officer_processing),
@@ -758,7 +761,8 @@ export async function recordGuildSyncApplications(applicationDB, records = []) {
         record.officer_processing,
         record.application_action,
         record.decline_message,
-        record.blacklist_message
+        record.blacklist_message,
+        /^\d{1,32}$/.test(String(submittedBy||'')) ? String(submittedBy) : null
       ]
     );
   }
@@ -787,6 +791,7 @@ export async function getGuildSyncApplicationsByApplicantSearch(applicationDB, a
         application_action,
         decline_message,
         blacklist_message,
+        submitted_by_discord_id,
         discord_broadcast
       FROM guildsync_applications
       WHERE applicant_account LIKE ?
@@ -834,6 +839,7 @@ export async function getGuildSyncApplicationByApplicantAccount(applicationDB, a
         application_action,
         decline_message,
         blacklist_message,
+        submitted_by_discord_id,
         discord_broadcast
       FROM guildsync_applications
       WHERE applicant_account IN (${placeholders})
@@ -856,7 +862,8 @@ export async function getPendingGuildSyncApplicationBroadcasts(applicationDB) {
         officer_processing,
         application_action,
         decline_message,
-        blacklist_message
+        blacklist_message,
+        submitted_by_discord_id
       FROM guildsync_applications
       WHERE discord_broadcast = 0
       ORDER BY CAST(application_timestamp AS UNSIGNED), applicant_account

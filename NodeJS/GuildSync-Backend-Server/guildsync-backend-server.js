@@ -29,6 +29,7 @@ import { registerRaffleManagementSocket, registerRaffleRefreshSocket } from './r
 import { createHistoricalRaffles } from './historical-raffles.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {getReturningMemberHistory} from './returning-member-history.js';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
@@ -708,7 +709,7 @@ io.on('connection', (socket) => {
           return;
         }
 
-        const result = await recordGuildSyncApplications(applicationDB, recordsForGuild);
+        const result = await recordGuildSyncApplications(applicationDB, recordsForGuild, {submittedBy:socket.guildSyncUser?.discord_user_id});
         const broadcastResult = await broadcastPendingGuildSyncApplications();
 
         sendSocketResponse(socket, 'guildsync:upload-savedvars-raw-result', callback, {
@@ -795,6 +796,7 @@ io.on('connection', (socket) => {
             applicationText: record.application_text,
             declineMessage: record.decline_message,
             blacklistMessage: record.blacklist_message,
+            returningMember: await getReturningMemberHistory(applicationDB,{...record,submitted_by_discord_id:payload.requested_by}),
             message: buildGuildSyncApplicationDiscordMessage(record)
           },
           30000
@@ -875,7 +877,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const result = await recordGuildSyncApplications(applicationDB, recordsForGuild);
+      const result = await recordGuildSyncApplications(applicationDB, recordsForGuild, {submittedBy:socket.guildSyncUser?.discord_user_id});
 
       Log(
         `ESO guild application database write complete. Inserted/updated: ${result.inserted}. Skipped: ${result.skipped}.`
@@ -2784,6 +2786,7 @@ async function broadcastPendingGuildSyncApplications() {
         applicationText: record.application_text,
         declineMessage: record.decline_message,
         blacklistMessage: record.blacklist_message,
+        returningMember: await getReturningMemberHistory(applicationDB,record),
         message: buildGuildSyncApplicationDiscordMessage(record)
       },
       30000
