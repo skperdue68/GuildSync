@@ -1,4 +1,5 @@
 import {registerApplicationHistorySocket} from './application-history.js';
+import {createRosterNoteAccess} from './roster-note-access.js';
 import {registerCommunityStatisticsSocket} from './community-statistics.js';
 import {startSheetsExportRecovery} from './sheets-export-queue.js';
 import {initializeVoiceIdentitySchema,createVoiceIdentityService,registerVoiceIdentityRoutes,registerVoiceOnlyConnection,authorizeVoiceRequester,authenticateVoiceSocket} from './voice-auth.js';
@@ -70,8 +71,6 @@ import {
   getDiscordRankAuditReport,
   getRosterDataDate,
   getRosterDataJSON,
-  getRosterMemberNotes,
-  addRosterMemberNote,
   getRosterRankHistoryMatches,
   getRosterStreamHistoryForAccount,
   getMemberLinks,
@@ -150,6 +149,9 @@ voiceIdentityService=createVoiceIdentityService(loginDB,{secret:GUILDSYNC_JWT_SE
 
 const app = express();
 const roleViews = createRoleViews(loginDB);
+const rosterNoteAccess=createRosterNoteAccess({db:applicationDB,loginDB,
+  effectiveRole:(socket,role)=>roleViews.effective(socket.guildSyncRoleViewId,role),
+  getRankRefs:()=>configurationService.view().settings.find(item=>item.key==='GUILDSYNC_VOICE_MUTE_RANK_ROLE_IDS')?.value ?? ''});
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -2044,7 +2046,7 @@ io.on('connection', (socket) => {
   socket.on('guildsync:request-roster-data', async (payload = {}, callback) => {
     try {
       const [members, refreshDate] = await Promise.all([
-        getRosterDataJSON(applicationDB),
+        getRosterDataJSON(applicationDB).then(members=>rosterNoteAccess.decorate(socket,members)),
         getRosterDataDate(applicationDB)
       ]);
 
@@ -2078,7 +2080,7 @@ io.on('connection', (socket) => {
   socket.on('guildsync:request-roster-member-notes', async (payload = {}, callback) => {
     try {
       const accountName = String(payload.account_name || payload.accountName || '').trim();
-      const notes = await getRosterMemberNotes(applicationDB, accountName);
+      const notes = await rosterNoteAccess.read(socket, accountName);
 
       const response = {
         ok: true,
@@ -2119,18 +2121,8 @@ io.on('connection', (socket) => {
     }
 
     try {
-      const officerName = String(
-        socket.guildSyncUser.display_name ||
-        socket.guildSyncUser.username ||
-        socket.guildSyncUser.discord_user_id ||
-        payload.officer_name ||
-        payload.officerName ||
-        ''
-      ).trim();
-
-      const note = await addRosterMemberNote(applicationDB, {
+      const note = await rosterNoteAccess.add(socket, {
         accountName: payload.account_name || payload.accountName || '',
-        officerName,
         note: payload.note || payload.note_text || payload.noteText || ''
       });
 
@@ -2831,14 +2823,19 @@ async function broadcastRosterDataUpdate() {
       getRosterDataDate(applicationDB)
     ]);
 
-    io.to('GuildSyncClient').emit('guildsync:roster-data-updated', {
+    for (const id of io.sockets.adapter.rooms.get('GuildSyncClient') || []) {
+      const client=io.sockets.sockets.get(id);
+      if(!client)continue;
+      const visibleMembers=await rosterNoteAccess.decorate(client,members);
+      client.emit('guildsync:roster-data-updated', {
       ok: true,
       message: 'Roster data updated.',
-      members,
-      members_returned: members.length,
+      members:visibleMembers,
+      members_returned: visibleMembers.length,
       last_refresh: refreshDate?.value || null,
       at: new Date().toLocaleString()
-    });
+      });
+    }
 
     Log(`Broadcast roster data update to GuildSync clients. Members: ${members.length}`);
   } catch (error) {
@@ -2864,6 +2861,7 @@ async function broadcastDiscordMemberDataUpdate() {
       at: new Date().toLocaleString()
     });
 
+    await broadcastRosterDataUpdate();
     Log(`Broadcast Discord member data update to GuildSync clients. Members: ${members.length}`);
   } catch (error) {
     Log('Failed to broadcast Discord member data update:', error);
