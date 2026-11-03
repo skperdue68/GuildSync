@@ -1,4 +1,3 @@
-import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import {biweeklySalesEndAtOrAfter, monthlySalesEndAtOrAfter, previousMonthlySalesEnd, shiftRaffleSalesEnd, normalizeScheduledSalesEnd} from './raffle-schedule.js';
 import {initializeCommunityStatisticsSchema} from './community-statistics.js';
 import {initializeSheetsExportQueue, enqueueSheetsExports, createSheetsExportStore} from './sheets-export-queue.js';
@@ -10,6 +9,7 @@ import { initializeVoiceMuteSchema } from './voice-mute-schema.js';
 import { ARCHIVE_CELLS_SCHEMA } from './raffle-archive-cells.js';
 import { RAFFLE_RESULTS_SCHEMA, RAFFLE_FORMULAS_SCHEMA } from './raffle-results.js';
 import mysql from 'mysql2/promise';
+import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import { bankingSource } from './banking-source.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { DEFAULT_BONUS_TIERS, parseBonusTiers, calculateRaffleBonus, selectRaffleBonusSettings } from './raffle-bonus.js';

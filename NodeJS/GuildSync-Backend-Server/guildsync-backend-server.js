@@ -1,5 +1,4 @@
 import {registerApplicationHistorySocket} from './application-history.js';
-import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import {registerCommunityStatisticsSocket} from './community-statistics.js';
 import {startSheetsExportRecovery} from './sheets-export-queue.js';
 import {initializeVoiceIdentitySchema,createVoiceIdentityService,registerVoiceIdentityRoutes,registerVoiceOnlyConnection,authorizeVoiceRequester,authenticateVoiceSocket} from './voice-auth.js';
@@ -20,6 +19,7 @@ import { readReleaseVersion } from './release-version.js';
 import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
+import {releaseExpiredDepositMailCheckouts} from './deposit-mail-lease.js';
 import fs from 'node:fs';
 import { registerRaffleSocket, registerArchiveSocket } from './raffle-socket.js';
 import { getActiveRaffleSummary, getRaffleUserTickets, getSheetsRaffleWindows, getRaffleRefreshSelection, selectSheetsCatchupEntries } from './guildsync-database-actions.js';
