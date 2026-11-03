@@ -1,7 +1,8 @@
+const LEADERBOARD_LIMIT=5;
 const positive=n=>Number.isFinite(Number(n))?Math.max(0,Number(n)):0;
 const label=r=>r.server_nickname||r.global_name||r.username||r.account_name||r.discord_id||'Unknown';
 const typeOf=t=>['monthly','50/50','5050'].includes(String(t).toLowerCase())?'monthly':['biweekly','bi-weekly','bi weekly'].includes(String(t).toLowerCase())?'biweekly':null;
-function leaders(rows,key,value){const totals=new Map();for(const r of rows){const id=String(key(r)||'').toLowerCase();if(!id)continue;const previous=totals.get(id)||{name:label(r),value:0,detail:''};previous.value+=value(r);totals.set(id,previous);}return [...totals.values()].filter(r=>r.value>0).sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name)).slice(0,5);}
+function leaders(rows,key,value){const totals=new Map();for(const r of rows){const id=String(key(r)||'').toLowerCase();if(!id)continue;const previous=totals.get(id)||{name:label(r),value:0,detail:''};previous.value+=value(r);totals.set(id,previous);}return [...totals.values()].filter(r=>r.value>0).sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name)).slice(0,LEADERBOARD_LIMIT);}
 export async function initializeCommunityStatisticsSchema(db){
  await db.query(`CREATE TABLE IF NOT EXISTS guildsync_community_statistics_metadata (metadata_key VARCHAR(64) PRIMARY KEY, metadata_value VARCHAR(64) NOT NULL)`);
  await db.query(`INSERT IGNORE INTO guildsync_community_statistics_metadata (metadata_key,metadata_value) VALUES ('tracking_since', DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%dT%H:%i:%sZ'))`);
@@ -25,17 +26,17 @@ export function buildCommunityStatistics({now=Math.floor(Date.now()/1000),tracki
  const current=roster.filter(r=>Number(r.in_roster)===1);const tenure=current.flatMap(r=>{const joins=rosterEvents.filter(e=>e.account_name.toLowerCase()===r.account_name.toLowerCase()&&e.event_type==='joined').map(e=>Number(e.event_timestamp)).filter(t=>t>0&&t<=now);if(!joins.length)return [];const joined=Math.max(...joins);const departed=rosterEvents.some(e=>String(e.account_name).toLowerCase()===r.account_name.toLowerCase()&&['left','kicked'].includes(e.event_type)&&Number(e.event_timestamp)>=joined&&Number(e.event_timestamp)<=now);if(departed)return [];return [{name:r.account_name,value:Math.floor((now-joined)/86400),detail:'Latest recorded join: '+new Date(joined*1000).toISOString()}];});
  const missingJoins=current.filter(r=>!rosterEvents.some(e=>String(e.account_name).toLowerCase()===String(r.account_name).toLowerCase()&&e.event_type==='joined'&&Number(e.event_timestamp)>0&&Number(e.event_timestamp)<=now)).length;
  const joinCoverage=`${missingJoins} of ${current.length} current members have no recorded join date. Import dates are excluded.`;
- add('longest-member','Longest membership with a known join date','Days since the latest recorded join. '+joinCoverage,'days',[...tenure].sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name)).slice(0,5));
- add('newest-member','Newest recorded current members','Current ESO members with a recorded join. '+joinCoverage,'days',[...tenure].sort((a,b)=>a.value-b.value||b.detail.localeCompare(a.detail)||a.name.localeCompare(b.name)).slice(0,5));
+ add('longest-member','Longest membership with a known join date','Days since the latest recorded join. '+joinCoverage,'days',[...tenure].sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name)).slice(0,LEADERBOARD_LIMIT));
+ add('newest-member','Newest recorded current members','Current ESO members with a recorded join. '+joinCoverage,'days',[...tenure].sort((a,b)=>a.value-b.value||b.detail.localeCompare(a.detail)||a.name.localeCompare(b.name)).slice(0,LEADERBOARD_LIMIT));
  const recordedActivity=activity.filter(r=>['post','reaction'].includes(r.activity_type)&&Number(r.activity_timestamp)>=now-30*86400&&Number(r.activity_timestamp)<=now);
  add('discord-busiest','Busiest Discord Users','Recorded posts plus emoji reactions given in the last 30 days. Bots excluded; offline or missed events are not backfilled.','actions',leaders(recordedActivity,r=>r.discord_id,r=>positive(r.activity_count)));
  add('discord-posts','Most Posts','New Discord posts recorded in the last 30 days; bots and system messages excluded.','posts',leaders(recordedActivity.filter(r=>r.activity_type==='post'),r=>r.discord_id,r=>positive(r.activity_count)));
  add('discord-reactions','Most Reactions Given','Emoji reactions given in the last 30 days, including likes. Each member/message/emoji counts once; removing a reaction does not subtract it.','reactions',leaders(recordedActivity.filter(r=>r.activity_type==='reaction'),r=>r.discord_id,r=>positive(r.activity_count)));
  const purchases=banking.filter(r=>typeOf(r.type)&&positive(r.purchasedTickets)>0&&Number(r.time)>0&&Number(r.time)<=now).map(r=>({...r,account_name:r.displayName}));
- for(const w of windows){const rows=purchases.filter(r=>typeOf(r.type)===w.type&&Number(r.time)>=w.salesStart&&Number(r.time)<=w.salesEnd);add('tickets-'+w.type,'Current '+(w.type==='monthly'?'50/50':'Bi-weekly')+' ticket purchasers','Purchased tickets only; bonus tickets excluded.','tickets',leaders(rows,r=>r.displayName,r=>positive(r.purchasedTickets)));}
+ for(const w of windows){const rows=purchases.filter(r=>typeOf(r.type)===w.type&&Number(r.time)>=w.salesStart&&Number(r.time)<=w.salesEnd);add('tickets-'+w.type,'Current '+(w.type==='monthly'?'50/50':'Bi-weekly')+' ticket purchasers (Top '+LEADERBOARD_LIMIT+')','Purchased tickets only; bonus tickets excluded.','tickets',leaders(rows,r=>r.displayName,r=>positive(r.purchasedTickets)));}
  const spending=r=>{const n=positive(r.amount),digit=Math.trunc(n)%10;return [1,3].includes(digit)&&n>digit?n-digit:n;};
  const recentPurchases=purchases.filter(r=>Number(r.time)>=now-90*86400);
- add('raffle-spending','Raffle spending (last 90 days)','Recorded ticket purchases in the last 90 days across both raffles, excluding +1/+3 markers; retained banking history only.','gold',leaders(recentPurchases,r=>r.displayName,spending));
+ add('raffle-spending','Raffle spending (last 90 days, Top '+LEADERBOARD_LIMIT+')','Recorded ticket purchases in the last 90 days across both raffles, excluding +1/+3 markers; retained banking history only.','gold',leaders(recentPurchases,r=>r.displayName,spending));
  return {
   generatedAt:new Date(now*1000).toISOString(),
   trackingSince,

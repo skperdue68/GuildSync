@@ -23,8 +23,8 @@ export function renderCommunityStatistics(report){
 }
 
 export function createCommunityStatisticsPanel({request,getSessionKey=()=>'default'}){
- let report=null,loading=false,error='',loaded=false,sessionKey=getSessionKey(),generation=0;
- const ensureSession=()=>{const key=getSessionKey();if(key!==sessionKey){sessionKey=key;generation++;report=null;loading=false;error='';loaded=false;}return key;};
+ let report=null,loading=false,error='',sessionKey=getSessionKey(),generation=0;
+ const ensureSession=()=>{const key=getSessionKey();if(key!==sessionKey){sessionKey=key;generation++;report=null;loading=false;error='';}return key;};
  const wired=new WeakSet();
  const message=()=>loading?'Loading community highlights…':error;
  const render=()=>{ensureSession();return `<article class="report-option-card community-statistics-card" data-community-card><div class="report-option-copy">
@@ -48,15 +48,19 @@ export function createCommunityStatisticsPanel({request,getSessionKey=()=>'defau
    const response=await request('guildsync:request-community-statistics',{});
    ensureSession();if(requestGeneration!==generation)return;
    if(!response?.ok||!response.report)throw new Error(response?.message || 'Could not load community highlights. Please refresh to retry.');
-   report=response.report;loaded=true;
+   report=response.report;
   }catch(cause){ensureSession();if(requestGeneration===generation)error=cause?.message || 'Could not load community highlights. Please refresh to retry.';}
   finally{ensureSession();if(requestGeneration===generation){loading=false;update(root);}}
  };
  const wire=(root=document)=>{
   ensureSession();
   const card=root.querySelector('[data-community-card]');if(!card||wired.has(card))return;wired.add(card);
-  card.querySelector('[data-community-toggle]').addEventListener('click',()=>{if(card.querySelector('[data-community-toggle]').getAttribute('aria-expanded')==='true'&&!loaded)return load(root);});
+  const toggle=card.querySelector('[data-community-toggle]');
+  const isOpen=()=>toggle.getAttribute('aria-expanded')==='true';
+  toggle.addEventListener('click',()=>{if(isOpen())return load(root);});
   card.querySelector('[data-community-refresh]').addEventListener('click',()=>load(root));
+  // Accordion state can also be restored when returning to Reports & Admin.
+  if(isOpen())return load(root);
  };
  return {render,wire,load};
 }
