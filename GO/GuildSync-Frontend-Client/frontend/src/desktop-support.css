@@ -1,0 +1,25 @@
+.desktop-unsupported {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  padding: 2rem;
+  color: #edf3ff;
+  background: #0b1429;
+  text-align: center;
+  overflow-y: auto;
+}
+.desktop-unsupported p { max-width: 44rem; line-height: 1.5; }
+.desktop-unsupported button {
+  padding: .85rem 1.4rem;
+  border: 1px solid #76a9ff;
+  border-radius: .6rem;
+  background: #2563db;
+  color: white;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.desktop-unsupported button:disabled { opacity: .5; cursor: default; }
+.desktop-unsupported-help { color: #aebfdc; font-size: .9rem; }

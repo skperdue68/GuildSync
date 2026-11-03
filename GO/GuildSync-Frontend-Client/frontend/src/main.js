@@ -1,3 +1,5 @@
+import {createDesktopSupport} from './desktop-support.js';
+import './desktop-support.css';
 import {matchApplicationsToJoins,renderJoinApplication} from './application-history.js';
 import './application-history.css';
 import {
@@ -72,6 +74,9 @@ let saveTimer = null;
 let resizeObserver = null;
 let resizeHandlerAttached = false;
 let profileMenuOpen = false;
+let desktopVersionAccepted = false;
+let desktopVersionHandshakeTimer = null;
+const desktopSupport=createDesktopSupport({onBlocked:stopUnsupportedDesktop});
 const userAdministrationPanel=createUserAdministrationPanel({request:(event,payload)=>emitSocketWithAck(event,payload,30000),getUser:()=>guildSyncSession.user,onCount:updateUserAdministrationBadge});
 let versionCheckTimer = null;
 let bankingUploadQueueProcessing = false;
@@ -313,6 +318,7 @@ async function loadExistingSession() {
 }
 
 function showMainWindow() {
+  if (desktopSupport.blocked) return showUnsupportedDesktopScreen();
   app.innerHTML = `
     <main class="main-window">
       <header class="title-bar">
@@ -489,6 +495,7 @@ function getGuildSyncTabIcon(icon) {
 }
 
 function renderGuildSyncTabContent() {
+  if (desktopSupport.blocked) return '';
   const activeTab = GUILDSYNC_TABS.find((tab) => tab.id === activeGuildSyncTab) || GUILDSYNC_TABS[0];
   let content = '';
 
@@ -813,6 +820,7 @@ function captureGuildSyncScrollPosition(content) {
 }
 
 function renderGuildSyncTabLayout(options = {}) {
+  if (desktopSupport.blocked) return showUnsupportedDesktopScreen();
   if (memberLinksReportDialogOpen) {
     captureMemberLinksReportScrollPosition();
   }
@@ -2883,6 +2891,7 @@ function shouldRefreshMemberLinksView() {
 }
 
 function handleMemberLinksUpdated(payload = {}) {
+  if (desktopSupport.blocked) return;
   if (!Array.isArray(payload.links)) return;
   const changed = JSON.stringify(memberLinks) !== JSON.stringify(payload.links);
   memberLinks = payload.links;
@@ -5051,6 +5060,7 @@ function formatRosterHistoryTimestamp(value) {
 }
 
 async function handleRosterDataUpdated(payload = {}) {
+  if (desktopSupport.blocked) return;
   const members = normalizeRosterMembers(payload.members);
   rosterMembers = members;
   rosterLastRefreshValue = payload.last_refresh || new Date().toISOString();
@@ -7023,6 +7033,7 @@ function markBankingLastRefreshNow() {
 }
 
 async function handleBankingDataUpdated(payload = {}) {
+  if (desktopSupport.blocked) return;
   if (!payload?.ok) {
     return;
   }
@@ -7745,6 +7756,7 @@ async function refreshDiscordLastRefreshDate() {
 }
 
 async function handleDiscordMemberDataUpdated(payload = {}) {
+  if (desktopSupport.blocked) return;
   if (!payload?.ok) {
     return;
   }
@@ -7824,8 +7836,8 @@ function emitSocketWithAck(eventName, payload = {}, timeoutMs = 30000) {
       reject(new Error('Your current role or view does not have permission to perform this action.'));
       return;
     }
-    if (!socket?.connected) {
-      reject(new Error('GuildSync websocket is not connected.'));
+    if (!socket?.connected || !desktopVersionAccepted || desktopSupport.blocked) {
+      reject(new Error('GuildSync connection is not supported or not ready.'));
       return;
     }
 
@@ -7847,6 +7859,10 @@ function emitSocketWithAck(eventName, payload = {}, timeoutMs = 30000) {
 
       finished = true;
       window.clearTimeout(timer);
+      if (desktopSupport.blocked || !desktopVersionAccepted) {
+        reject(new Error('This GuildSync desktop connection is unsupported or no longer active.'));
+        return;
+      }
       resolve(response);
     });
   });
@@ -8722,7 +8738,45 @@ async function logoutGuildSync() {
   }
 }
 
+function stopUnsupportedDesktop() {
+  showUnsupportedDesktopScreen();
+  socket?.io?.reconnection?.(false);
+  stopVersionCheckTimer();
+  stopESOStatusPolling();
+  stopDepositMailAvailabilityPolling();
+  window.clearTimeout(depositMailPendingWriteAutoTimer);
+  depositMailPendingWriteAutoTimer = null;
+  window.clearTimeout(rosterHistorySearchTimer);
+  window.clearTimeout(discordHistorySearchTimer);
+  window.clearTimeout(bankingHistorySearchTimer);
+  disconnectSocket(false);
+  discordMembers = []; discordRoles = []; rosterMembers = []; bankingEntries = []; memberLinks = [];
+  bankingHistoryRecords = []; bankingHistoryMatches = []; discordHistoryEvents = []; discordHistoryMatches = [];
+  rosterNotesDialogNotes = []; rosterHistoryEvents = []; rosterHistoryApplications = [];
+  adminConfigurationPanel.clear();
+  guildSyncSession = {logged_in:false,allowed:false,token:''};
+  systemMessages.clear();
+  try { void Promise.resolve(StopGuildSyncFileWatcher()).catch(() => {}); } catch {}
+}
+
+function showUnsupportedDesktopScreen() {
+  const info=desktopSupport.info || {};
+  app.innerHTML=`<main class="main-window">
+    <header class="title-bar"><div class="title-bar-drag-region"><img src="${appIcon}" alt="" class="title-icon"/><span class="app-title">GuildSync</span></div>
+      <div class="window-buttons"><button id="unsupportedMinimize" class="window-button" title="Minimize">−</button><button id="unsupportedClose" class="window-button close-button" title="Close">×</button></div></header>
+    <section class="desktop-unsupported" role="alert"><h1>GuildSync update required</h1>
+      <p>${escapeHtml(info.message || 'This version of GuildSync is no longer supported.')}</p>
+      <p>Installed: ${escapeHtml(GUILDSYNC_APP_VERSION)}${info.minimumVersion?` · Minimum supported: ${escapeHtml(info.minimumVersion)}`:''}</p>
+      <button id="unsupportedDownload" type="button" ${info.downloadUrl?'':'disabled'}>Download latest GuildSync</button>
+      <p class="desktop-unsupported-help">The server connection has stopped. Install the latest version and restart GuildSync to continue.</p>
+    </section></main>`;
+  document.querySelector('#unsupportedDownload')?.addEventListener('click',()=>{if(info.downloadUrl)void BrowserOpenURL(info.downloadUrl);});
+  document.querySelector('#unsupportedClose')?.addEventListener('click',()=>void CloseWindow());
+  document.querySelector('#unsupportedMinimize')?.addEventListener('click',()=>void MinimizeWindow());
+}
+
 function connectSocket() {
+  if (desktopSupport.blocked) return showUnsupportedDesktopScreen();
   const socketURL = guildSyncSession.socket_url || 'https://guildsync.perdues.me';
 
   disconnectSocket(false);
@@ -8732,11 +8786,13 @@ function connectSocket() {
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000
+    reconnectionDelayMax: 5000,
+    auth: {client_type:'wails',version:GUILDSYNC_APP_VERSION,platform:getGuildSyncClientPlatform()}
   };
 
   if (guildSyncSession?.token) {
     socketOptions.auth = {
+      ...socketOptions.auth,
       token: guildSyncSession.token
     };
   }
@@ -8744,30 +8800,16 @@ function connectSocket() {
   socket = io(socketURL, socketOptions);
 
   socket.on('connect', () => {
-    void voiceHotkey.connection(true);
-    userAdministrationPanel.start();
+    desktopVersionAccepted = false;
     updateStatusDot();
+    window.clearTimeout(desktopVersionHandshakeTimer);
+    desktopVersionHandshakeTimer=window.setTimeout(()=>{
+      if(!desktopVersionAccepted && !desktopSupport.blocked) {
+        disconnectSocket();
+        addSystemMessage('version-check','GuildSync could not confirm desktop compatibility. Restart the application to try again.');
+      }
+    },15000);
     sendVersionCheck();
-
-    if (activeGuildSyncTab === 'discord-members') {
-      refreshDiscordData({ silent: true });
-    }
-
-    if (activeGuildSyncTab === 'eso-members') {
-      refreshRosterDataFromBackend({ silent: true });
-    }
-
-    if (activeGuildSyncTab === 'more' || activeGuildSyncTab === 'settings' && !raffleBonusSettings) {
-      refreshBankingDataFromBackend({ silent: true });
-    }
-
-    processPendingGuildSyncBankingUploads();
-    processPendingDepositMailBatches();
-    startESOStatusPolling();
-    startDepositMailAvailabilityPolling();
-    processPendingGuildSyncRosterUploads();
-    processPendingGuildSyncApplicationsUploads();
-    startVersionCheckTimer();
   });
 
   socket.on('guildsync:users-changed',payload=>userAdministrationPanel.changed(payload));
@@ -8775,13 +8817,16 @@ function connectSocket() {
   socket.on('guildsync:account-removed',()=>void logoutGuildSync());
   socket.on('guildsync:voice-mute-access-changed',()=>void voiceHotkey.invalidateAccess());
 
-  socket.on('connect_error', () => {
+  socket.on('connect_error', error => {
+    if (error?.data?.supported === false) desktopSupport.receive(error.data);
     userAdministrationPanel.stop();
     updateStatusDot();
     stopVersionCheckTimer();
   });
 
   socket.on('disconnect', () => {
+    desktopVersionAccepted = false;
+    window.clearTimeout(desktopVersionHandshakeTimer);
     void voiceHotkey.connection(false);
     userAdministrationPanel.stop();
     updateStatusDot();
@@ -8826,7 +8871,36 @@ function connectSocket() {
   });
 }
 
+function startSupportedDesktopConnection() {
+  if(desktopSupport.blocked || !socket?.connected)return;
+  void voiceHotkey.connection(true);
+  userAdministrationPanel.start();
+  void syncGuildSyncFileWatcherWithAuthState({silent:true});
+  if (activeGuildSyncTab === 'discord-members') {
+    refreshDiscordData({ silent: true });
+  }
+
+  if (activeGuildSyncTab === 'eso-members') {
+    refreshRosterDataFromBackend({ silent: true });
+  }
+
+  if (activeGuildSyncTab === 'more' || activeGuildSyncTab === 'settings' && !raffleBonusSettings) {
+    refreshBankingDataFromBackend({ silent: true });
+  }
+
+  processPendingGuildSyncBankingUploads();
+  processPendingDepositMailBatches();
+  startESOStatusPolling();
+  startDepositMailAvailabilityPolling();
+  processPendingGuildSyncRosterUploads();
+  processPendingGuildSyncApplicationsUploads();
+  startVersionCheckTimer();
+}
+
+
 function disconnectSocket(updateDot = true) {
+  desktopVersionAccepted = false;
+  window.clearTimeout(desktopVersionHandshakeTimer);
   rosterHistoryLoadGeneration++;
   rosterHistoryApplications = [];
   rosterHistoryApplicationsLoaded = false;
@@ -8878,6 +8952,12 @@ function stopVersionCheckTimer() {
 }
 
 function handleVersionStatus(payload) {
+  if (desktopSupport.receive(payload)) return;
+  if (payload && typeof payload === 'object' && !desktopVersionAccepted && socket?.connected) {
+    desktopVersionAccepted = true;
+    window.clearTimeout(desktopVersionHandshakeTimer);
+    startSupportedDesktopConnection();
+  }
   if (!payload || typeof payload !== 'object') {
     return;
   }
@@ -9374,8 +9454,9 @@ function updateStatusDot() {
 
 async function syncGuildSyncFileWatcherWithAuthState(options = {}) {
   try {
-    if (canIngestGuildSyncData()) {
+    if (canIngestGuildSyncData() && desktopVersionAccepted) {
       const status = await StartGuildSyncFileWatcher();
+      if (desktopSupport.blocked) { await StopGuildSyncFileWatcher(); return; }
       guildSyncFileWatcherStatus = status;
 
       if (!options.silent && status?.message) {
@@ -9517,7 +9598,7 @@ function wireGuildSyncEvents() {
 }
 
 function isAuthenticatedSession() {
-  return Boolean(guildSyncSession?.logged_in && guildSyncSession?.allowed && guildSyncSession?.token);
+  return !desktopSupport.blocked && Boolean(guildSyncSession?.logged_in && guildSyncSession?.allowed && guildSyncSession?.token);
 }
 
 function canEditGuildSyncData() {

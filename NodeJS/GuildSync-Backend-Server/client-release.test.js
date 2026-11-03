@@ -1,3 +1,4 @@
+import {createDesktopVersionPolicy} from './desktop-version-policy.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,6 +33,7 @@ test('version socket survives missing directory and does not offer an unavailabl
   const f = fixture();
   f.close();
   let result;
+  f.context.desktopVersionPolicy=createDesktopVersionPolicy({latest:'1.2.7',download:platform=>f.context.getGuildSyncClientDownload(platform)});
   f.context.socket = { on(event, handler) { handler({ version: '1.2.0', platform: 'macos' }); }, emit(event, payload) { result = payload; } };
   const start = source.indexOf("  socket.on('guildsync:client-version'");
   vm.runInContext(source.slice(start, source.indexOf("  socket.on('guildsync:request-discord-data-refresh'", start)), f.context);

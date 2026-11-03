@@ -7,7 +7,7 @@ import {canEditGuildSyncRole,canIngestGuildSyncRole,canManageGuildSyncLinksRole,
 for(const file of ['./web/src/main.js','../../GO/GuildSync-Frontend-Client/frontend/src/main.js']) {
  const source=readFileSync(new URL(file,import.meta.url),'utf8');
  const functions=names=>names.map(name=>source.match(new RegExp(`(?:async )?function ${name}\\([^]*?(?=\\n(?:async )?function |$)`))?.[0]||assert.fail('Missing '+name)).join('\n');
- const context=extra=>vm.createContext({guildSyncSession:{logged_in:true,allowed:true,token:'token',user:{role:'viewer'}},socket:{connected:true},canEditGuildSyncRole,canIngestGuildSyncRole,canManageGuildSyncLinksRole,canPerformGuildSyncEvent,canManageGuildSyncLinks:()=>false,escapeHtml:String,escapeAttribute:String,...extra});
+ const context=extra=>vm.createContext({desktopSupport:{blocked:false},desktopVersionAccepted:true,guildSyncSession:{logged_in:true,allowed:true,token:'token',user:{role:'viewer'}},socket:{connected:true},canEditGuildSyncRole,canIngestGuildSyncRole,canManageGuildSyncLinksRole,canPerformGuildSyncEvent,canManageGuildSyncLinks:()=>false,escapeHtml:String,escapeAttribute:String,...extra});
  test(`${file}: Viewer remains authenticated for reads but cannot edit`,()=>{
   const ctx=context();vm.runInContext(functions(['isAuthenticatedSession','canEditGuildSyncData','canIngestGuildSyncData']),ctx);
   assert.equal(vm.runInContext('isAuthenticatedSession()',ctx),true);assert.equal(vm.runInContext('canEditGuildSyncData()',ctx),false);
