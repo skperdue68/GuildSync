@@ -1,3 +1,4 @@
+import {renderMemberHistoryButton} from './web/src/member-history-shortcuts.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -7,7 +8,7 @@ function load(path, roles=[], members=[]) {
  const source=readFileSync(new URL(path,import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const names=['normalizeDiscordRole','normalizeDiscordRoleName','findRoleByName','getDiscordRoleNamesForRosterRank','findRoleByRosterRankName','discordRoleColorToHex','getDiscordMemberColor','getEsoRosterRankColor'];
  const functions=names.map(name=>{const start=source.indexOf(`function ${name}(`);assert.notEqual(start,-1,`missing ${name}`);const end=source.indexOf('\n}\n',start);return source.slice(start,end+2)}).join('\n');
- const context=vm.createContext({discordRoles:roles,discordMembers:members});vm.runInContext(functions,context);return context;
+ const context=vm.createContext({renderMemberHistoryButton,discordRoles:roles,discordMembers:members});vm.runInContext(functions,context);return context;
 }
 for (const path of paths) {
  test(`${path}: retains Discord hierarchy and selects highest colored role, independent of membership order`,()=>{

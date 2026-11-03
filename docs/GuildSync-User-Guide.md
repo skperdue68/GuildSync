@@ -206,3 +206,7 @@ See [community highlights and spreadsheet recovery](GuildSync-Community-Statisti
 When the bot posts a scheduled raffle-value summary or you run `/raffle public:true`, it scans that same channel and removes its older raffle-value summaries. The summary with the freshest data remains; ties keep the newest post. This also cleans up summaries posted before the update. Private ticket replies, archive notifications, other announcements, and messages from people or other bots are preserved.
 
 The bot needs Read Message History in that channel. Cleanup problems are reported in the bot logs; the new summary remains available. No additional setting is required.
+
+### Open a member's history
+
+Select the small history icon on a Guild Roster row (between Notes and Linked) or a Discord Member Data row (between Roles and Linked). The existing history window opens with that member selected and their name filled in. You can still search for someone else inside the window. These shortcuts are available in the web and desktop clients.
