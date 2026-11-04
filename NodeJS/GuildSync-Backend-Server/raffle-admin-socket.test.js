@@ -65,11 +65,11 @@ test('refresh endpoint uses both independently selected windows without test ena
   assert.equal((await request({ action: 'plan', discordUserId: 'officer' })).ok, false);
 });
 
-test('database authorization compares exact role names despite case-insensitive database collation', async () => {
+test('database authorization applies configured names or IDs consistently', async () => {
   assert.equal(typeof endpoints.isConsigliere, 'function');
   for (const role of ['Consigliere', 'consigliere', 'Capo', 'Consigliere ']) {
     const db = { execute: async (sql, args) => { assert.match(sql, /discord_member_roles/); assert.deepEqual(args, ['123']); return [[{ role_name: role }]]; } };
-    assert.equal(await endpoints.isConsigliere(db, '123'), role === 'Consigliere');
+    assert.equal(await endpoints.isConsigliere(db, '123'), role.trim().toLowerCase() === 'consigliere');
     assert.equal(await endpoints.isConsigliere(db, ''), false);
   }
 });
@@ -118,4 +118,13 @@ test('unpadded dates can be planned but cannot mutate until submitted in canonic
   assert.equal((await request(action,'091526')).ok,true);
  }
  assert.deepEqual(calls,['export','update']);
+});
+
+
+test('backend checks configured role IDs independently using synchronized member roles',async()=>{
+ const env={GUILDSYNC_RAFFLE_ADMIN_ROLES:'123456,Officers'};
+ const db={execute:async(sql,args)=>{assert.match(sql,/r.role_id, r.role_name/);assert.deepEqual(args,['member']);return [[{role_id:'123456',role_name:'Renamed'}]];}};
+ assert.equal(await endpoints.isRaffleAdministrator(db,'member',env),true);
+ assert.equal(await endpoints.isRaffleAdministrator(db,'member',{GUILDSYNC_RAFFLE_ADMIN_ROLES:''}),false);
+ assert.equal(await endpoints.isRaffleAdministrator(db,'member',{}),false);
 });

@@ -47,12 +47,12 @@ test('production refresh is private, independent of test flag, and identifies bo
   assert.match(text, /Raffle data has been loaded to the working sheet using the button below/);
   assert.doesNotMatch(text, /R7|P7/);
 });
-test('all gsa raffle actions require the exact Consigliere role', async () => {
-  for (const role of ['Capo', 'caporegieme', 'consigliere', 'Member']) for (const action of ['load', 'reset', 'archive', 'update']) {
+test('all gsa raffle actions require an authorized raffle administrator role', async () => {
+  for (const role of ['Capo', 'caporegieme', 'Member']) for (const action of ['load', 'reset', 'archive', 'update']) {
     const f = fixture({ role, action }); await command.execute(f.interaction, f.socket);
     assert.deepEqual(f.calls, []);
     assert.equal(f.replies[0].flags, MessageFlags.Ephemeral);
-    assert.match(f.replies[0].content, /Consigliere/);
+    assert.match(f.replies[0].content, /raffle administrator/);
   }
 });
 
@@ -196,4 +196,15 @@ test('padding confirmation precedes the existing raffle boundary choice for load
   await command.execute(f.interaction,f.socket,()=>{});
   assert.equal(prompts,2);const mutation=f.calls.at(-1).payload;assert.equal(mutation.date,'092626');assert.deepEqual(mutation.boundaryChoices,{biweekly:'ends'});
  }
+});
+
+
+test('General supports custom raffle administrators by role name or ID and explicit denial',async t=>{
+ const before=process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES;
+ t.after(()=>before===undefined?delete process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES:process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES=before);
+ process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES='Officers,123456';
+ let f=fixture({role:'officers'});await command.execute(f.interaction,f.socket);assert.ok(f.calls.length>0);
+ f=fixture({role:'officers'});f.interaction.member.roles.cache=[{id:'123456',name:'Renamed'}];await command.execute(f.interaction,f.socket);assert.ok(f.calls.length>0);
+ f=fixture({role:'officers'});f.interaction.member.roles.cache=[{name:'Consigliere'}];await command.execute(f.interaction,f.socket);assert.equal(f.calls.length,0);
+ process.env.GUILDSYNC_RAFFLE_ADMIN_ROLES='';f=fixture({role:'officers'});await command.execute(f.interaction,f.socket);assert.equal(f.calls.length,0);
 });

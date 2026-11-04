@@ -1,3 +1,4 @@
+import {hasRaffleAdminRole} from '../raffle-permissions.js';
 import { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from 'discord.js';
 import { Log } from '../helper.js';
 import { fileLinkButtons, fileLinkContent } from '../file-link-buttons.js';
@@ -46,7 +47,7 @@ function selectionMessage(selection) {
 export async function execute(interaction, socket, log = Log) {
   const reply = content => interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   if (!interaction.guildId || (process.env.DISCORD_GUILD_ID && interaction.guildId !== process.env.DISCORD_GUILD_ID)) return reply('Use this command in the configured GuildSync server.');
-  if (!interaction.member?.roles?.cache?.some(role => role.name === 'Consigliere')) return reply('Only users with the exact Consigliere role can use these raffle commands.');
+  if (!hasRaffleAdminRole(interaction.member?.roles?.cache)) return reply('An authorized raffle administrator role is required to use these raffle commands.');
   const action = interaction.options.getSubcommand();
   if (!['load', 'reset', 'archive', 'update'].includes(action)) return reply('That command has been retired. Use /gsraffle load, reset, archive, or update.');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });

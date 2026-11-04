@@ -1,3 +1,4 @@
+import {hasRaffleAdminRole} from '../raffle-permissions.js';
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { requestActiveRaffles, formatRaffles } from '../raffle.js';
 import { Log } from '../helper.js';
@@ -8,7 +9,7 @@ export const data = new SlashCommandBuilder()
   .setDescription('Show the active bi-weekly and 50/50 raffle prizes and draw times.')
   .addBooleanOption(option => option.setName('public').setDescription('Show the response publicly instead of privately.'))
   .addBooleanOption(option => option.setName('tickets').setDescription('Show your current raffle purchases and ticket counts.'))
-  .addStringOption(option => option.setName('verify').setDescription('Verify current tickets for an ESO account (Consigliere only).'))
+  .addStringOption(option => option.setName('verify').setDescription('Verify current tickets for an ESO account (raffle administrators only).'))
   .setDMPermission(false);
 
 export async function execute(interaction, guildSyncSocket, log = Log, { includeTickets = false } = {}) {
@@ -26,9 +27,9 @@ export async function execute(interaction, guildSyncSocket, log = Log, { include
       await interaction.reply({ content: 'Enter the ESO account name only, without @ signs, Discord mentions, or links.', flags: MessageFlags.Ephemeral });
       return;
     }
-    const hasRole = interaction.member?.roles?.cache?.some(role => role.name === 'Consigliere');
+    const hasRole = hasRaffleAdminRole(interaction.member?.roles?.cache);
     if (!hasRole) {
-      await interaction.reply({ content: 'Only users with the exact Consigliere role can verify another account.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: 'An authorized raffle administrator role is required to verify another account.', flags: MessageFlags.Ephemeral });
       return;
     }
   }
