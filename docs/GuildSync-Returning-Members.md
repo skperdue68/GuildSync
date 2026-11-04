@@ -1,8 +1,8 @@
 # Returning-member rank restoration
 
 When GuildSync posts an **accepted** application to the configured Discord application thread, the backend searches roster event history for that exact ESO account (`@` and case differences are ignored).
-It selects the latest recorded **promotion** at or before the application's capture time. Later history is excluded when reposting an older application.
-No promotion history means no historical rank restoration; a new join/snapshot alone is not a promotion record.
+It selects the latest recorded **rank change (promotion or demotion)** at or before the application's capture time. Later history is excluded when reposting an older application.
+The most recent change wins, including a demotion after a promotion. No recorded promotion or demotion means no historical rank restoration; a new join/snapshot alone does not establish a previous rank.
 
 The bot first uses the confirmed ESO/Discord account link. Without a confirmed link, it requires exactly one Discord member whose username, global name, or server nickname matches the ESO account exactly.
 It never uses fuzzy/partial name matching or guesses between multiple links/members.
@@ -29,5 +29,5 @@ Optional bot `.env` settings (restart bot after editing):
 - `GUILDSYNC_APPLICATION_RESTORE_RANK_ENABLED=true`: defaults to enabled. Set `false` to retain ordinary application posts without automatic returning-rank restoration.
 - `GUILDSYNC_APPLICATION_OFFICER_ROLE=Consigliere`: officer role name or numeric role ID, without `@`. Defaults to Consigliere; aliases such as Consiglieri are recognized.
 
-Restart the updated backend and bot. Startup automatically adds the nullable `guildsync_applications.submitted_by_discord_id` column to retain the authenticated uploader for pending broadcasts; existing application text/history is preserved. No client build, ESO addon, or Google Apps Script update is needed.
+For this rank-history correction, restart the updated backend; restart the bot too if deploying its revised audit wording. Startup automatically adds the nullable `guildsync_applications.submitted_by_discord_id` column to retain the authenticated uploader for pending broadcasts; existing application text/history is preserved. No client build, ESO addon, or Google Apps Script update is needed.
 Application capture must be enabled in GuildSyncApplications for new captured applications to reach the backend; existing records can still be reposted.
