@@ -80,7 +80,7 @@ for(const client of clients) {
     const main=readFileSync(new URL(`./${client}/main.js`,import.meta.url),'utf8');
     const start=main.indexOf('async function sendQueuedGuildSyncApplicationsUpload('),end=main.indexOf('\nfunction ',start);
     let refresh;
-    const context=vm.createContext({socket:{connected:true},emitSocketWithAck:async()=>({ok:true}),
+    const context=vm.createContext({sessionGeneration:0,userSwitchTransition:false,guildSyncSession:{user:{role:"user"}},socket:{connected:true},emitSocketWithAck:async()=>({ok:true}),
       formatGuildSyncApplicationDiscordMessage:()=>'',CommitGuildSyncApplicationsData:async()=>({ok:false,data:{cleanup_deferred:true}}),
       addSystemMessage(){},TRANSIENT_MESSAGE_TTL_MS:1,setTimeout:callback=>{refresh=callback;},
       collectAndSendGuildSyncApplicationsData:async payload=>{assert.equal(payload.filePath,'pending.lua');}});

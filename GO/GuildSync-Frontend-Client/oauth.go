@@ -66,13 +66,27 @@ var defaultGuildSyncClientConfig = GuildSyncClientConfig{
 }
 
 type GuildSyncUser struct {
-	DiscordUserID string `json:"discord_user_id"`
-	Username      string `json:"username"`
-	DisplayName   string `json:"display_name"`
-	Avatar        string `json:"avatar"`
-	AvatarURL     string `json:"avatar_url"`
-	Email         string `json:"email,omitempty"`
-	Role          string `json:"role"`
+	DiscordUserID string               `json:"discord_user_id"`
+	Username      string               `json:"username"`
+	DisplayName   string               `json:"display_name"`
+	Avatar        string               `json:"avatar"`
+	AvatarURL     string               `json:"avatar_url"`
+	Email         string               `json:"email,omitempty"`
+	Role          string               `json:"role"`
+	GlobalName    string               `json:"global_name,omitempty"`
+	ActualRole    string               `json:"actual_role,omitempty"`
+	UserSwitch    *GuildSyncUserSwitch `json:"user_switch,omitempty"`
+}
+
+type GuildSyncUserSwitch struct {
+	Epoch      string `json:"epoch"`
+	Active     bool   `json:"active"`
+	Revision   int64  `json:"revision"`
+	CanSwitch  bool   `json:"can_switch"`
+	ActorID    string `json:"actor_id"`
+	ActorName  string `json:"actor_name"`
+	TargetID   string `json:"target_id"`
+	TargetName string `json:"target_name"`
 }
 
 type GuildSyncSession struct {
@@ -162,24 +176,51 @@ func (a *App) GetGuildSyncSession() (GuildSyncSession, error) {
 			StatusMessage: "Session expired. Please log in again.",
 		}, nil
 	}
-	if session.Token != "" {
-		endpoint := strings.TrimRight(session.AuthServerURL, "/") + "/api/auth/session"
-		req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
-		if reqErr == nil {
-			req.Header.Set("Authorization", "Bearer "+session.Token)
-			client := http.Client{Timeout: 5 * time.Second}
-			resp, err := client.Do(req)
-			if err == nil {
-				resp.Body.Close()
-				if resp.StatusCode == http.StatusUnauthorized {
-					_ = DeleteGuildSyncSession()
-					return GuildSyncSession{StatusMessage: "Session ended. Please log in again."}, nil
-				}
-			}
-		}
-	}
+	return verifyGuildSyncSession(session), nil
+}
 
-	return session, nil
+func verifyGuildSyncSession(session GuildSyncSession) GuildSyncSession {
+	unverified := GuildSyncSession{
+		SocketURL: session.SocketURL, AuthServerURL: session.AuthServerURL,
+		StatusMessage: "Could not verify your session. Please try again.",
+	}
+	if session.Token == "" {
+		return unverified
+	}
+	endpoint := strings.TrimRight(session.AuthServerURL, "/") + "/api/auth/session"
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return unverified
+	}
+	req.Header.Set("Authorization", "Bearer "+session.Token)
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return unverified
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		_ = DeleteGuildSyncSession()
+		unverified.StatusMessage = "Session ended. Please log in again."
+		return unverified
+	}
+	if resp.StatusCode != http.StatusOK {
+		return unverified
+	}
+	var verified struct {
+		OK   bool          `json:"ok"`
+		User GuildSyncUser `json:"user"`
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil || json.Unmarshal(body, &verified) != nil || !verified.OK ||
+		strings.TrimSpace(verified.User.DiscordUserID) == "" || strings.TrimSpace(verified.User.Role) == "" {
+		return unverified
+	}
+	// The server resolves the effective identity; the persisted token remains the actor's.
+	session.User = verified.User
+	session.LoggedIn = true
+	session.Allowed = true
+	return session
 }
 
 func (a *App) LogoutGuildSync() (GuildSyncSession, error) {

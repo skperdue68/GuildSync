@@ -18,11 +18,11 @@ GuildSync account roles control the desktop and web application. They are separa
 
 Viewers can refresh tabs, upload ESO history through GuildSyncBanking, GuildSyncRoster, and GuildSyncApplications, and run automatic linking. On ESO, `/gsbanking`, `/gsroster`, and `/gsapplications` still gather information for their corresponding add-ons; the approved GuildSync account then uploads it to the database. This can add ticket purchases and roster join/leave events. Viewer access does not permit manual links, unlinking, manual banking entries, moving entries, notes, or receipt checkout/processing. Viewers do not see the pending-receipt counter or highlighting. The interface and backend enforce these restrictions.
 
-## Admin preview modes
+## Admin account switching
 
-In the top-right avatar menu, an Admin can select **View as User** or **View as Viewer**. GuildSync applies that role's interface and backend permissions to the current login while preserving the stored Admin role. The menu displays the preview mode and replaces the two choices with **Return to Admin View**. User and Viewer accounts cannot use this control to gain Admin access.
+The top-right avatar menu lets an approved Admin select an approved GuildSync account under **Act as account**. GuildSync uses that account's interface, permissions, and Discord rank for note visibility. **Return to my account** restores the real administrator, including when the selected account is a Viewer. The actual administrator remains authenticated and is recorded in the switch audit. Ordinary features do not inherit the real actor's Admin permissions.
 
-Preview mode survives socket reconnection and page reload for that login, and applies to tabs sharing the same token. Separate logins remain independent. Logging out clears the mode; a fresh login returns an Admin account to Admin view. Preview choices are held in backend memory, so a backend restart also resets them. They do not change database roles or require new tables or environment settings.
+The former View as User/Viewer controls are hidden while their implementation and styles remain available. See [account switching](admin-user-switch.md) for lifecycle, deployment, audit storage, native pauses and restoration instructions.
 
 ## New accounts and approval
 

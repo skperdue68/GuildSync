@@ -1,3 +1,4 @@
+import {createUserSwitches,initializeUserSwitchSchema,registerUserSwitchSocket,registerUserSwitchGuard} from './user-switch.js';
 import {registerApplicationHistorySocket} from './application-history.js';
 import {createRosterNoteAccess} from './roster-note-access.js';
 import {registerCommunityStatisticsSocket} from './community-statistics.js';
@@ -124,6 +125,7 @@ let voiceIdentityService;
 
 try {
   loginDB = await openLoginDB();
+  await initializeUserSwitchSchema(loginDB);
 await initializeVoiceIdentitySchema(loginDB);
 voiceIdentityService=createVoiceIdentityService(loginDB,{secret:GUILDSYNC_JWT_SECRET});
   applicationDB = await openAppDataDB();
@@ -151,6 +153,7 @@ voiceIdentityService=createVoiceIdentityService(loginDB,{secret:GUILDSYNC_JWT_SE
 
 const app = express();
 const roleViews = createRoleViews(loginDB);
+const userSwitches = createUserSwitches(loginDB,{log:Log});
 const rosterNoteAccess=createRosterNoteAccess({db:applicationDB,loginDB,
   effectiveRole:(socket,role)=>roleViews.effective(socket.guildSyncRoleViewId,role),
   getRankRefs:()=>configurationService.view().settings.find(item=>item.key==='GUILDSYNC_VOICE_MUTE_RANK_ROLE_IDS')?.value ?? ''});
@@ -340,7 +343,8 @@ app.get('/api/auth/session', async (req, res) => {
         display_name: claims.display_name || claims.global_name || claims.username || '',
         avatar_url: claims.avatar_url || '',
         role: claims.role || 'user',
-        actual_role: claims.actual_role || claims.role
+        actual_role: claims.actual_role || claims.role,
+        ...(claims.user_switch ? {user_switch:claims.user_switch} : {})
       }
     });
   } catch (error) {
@@ -353,8 +357,9 @@ app.post('/api/auth/logout', async (req, res) => {
   try {
     const claims = await verifyGuildSyncSession(getBearerToken(req));
     roleViews.clear(roleViewSessionKey(claims));
+    await userSwitches.clear(roleViewSessionKey(claims),'logout');
     if (claims.jti) {
-      await loginDB.execute('DELETE FROM guildsync_login_sessions WHERE session_id = ? AND discord_user_id = ?', [claims.jti, claims.sub]);
+      await loginDB.execute('DELETE FROM guildsync_login_sessions WHERE session_id = ? AND discord_user_id = ?', [claims.jti, claims.actor_sub || claims.sub]);
       for (const socket of io.sockets.sockets.values()) {
         if (socket.guildSyncAuthType!=='voice-mute' && socket.guildSyncSessionId === claims.jti) socket.disconnect(true);
       }
@@ -480,6 +485,8 @@ io.use(async (socket, next) => {
 
     socket.guildSyncAuthenticated = true;
     socket.guildSyncAuthType = 'GuildSync user';
+    socket.guildSyncToken = token;
+    socket.guildSyncActorId = claims.actor_sub || claims.sub;
     socket.guildSyncSessionId = claims.jti || null;
     socket.guildSyncRoleViewId = roleViewSessionKey(claims);
     socket.guildSyncUser = {
@@ -488,7 +495,8 @@ io.use(async (socket, next) => {
       display_name: claims.display_name,
       avatar_url: claims.avatar_url || '',
       role: claims.role,
-      actual_role: claims.actual_role
+      actual_role: claims.actual_role,
+      ...(claims.user_switch ? {user_switch:claims.user_switch} : {})
     };
 
     return next();
@@ -503,8 +511,12 @@ const voiceMuteStore = createVoiceMuteStore(applicationDB);
 const userAdministration = createUserAdministration(loginDB, {log:Log,onChange:async change=>{
   Log(`GuildSync user ${change.action} by ${change.actor_id}: ${change.discord_user_id}`);
   if(change.removed || change.user?.role !== 'admin') roleViews.clearUser(change.discord_user_id);
+  const changedSwitchSessions = new Set(await userSwitches.clearUser(change.discord_user_id));
   for(const client of io.sockets.sockets.values()) {
-    if(client.guildSyncAuthType==='voice-mute'||client.guildSyncUser?.discord_user_id!==change.discord_user_id)continue;
+    if(changedSwitchSessions.has(client.guildSyncRoleViewId)){try{await notifyUserSwitch(client);}catch{ /* Other sessions still require invalidation. */ }}
+  }
+  for(const client of io.sockets.sockets.values()) {
+    if(changedSwitchSessions.has(client.guildSyncRoleViewId)||client.guildSyncAuthType==='voice-mute'||client.guildSyncUser?.discord_user_id!==change.discord_user_id)continue;
     if(change.removed){client.emit('guildsync:account-removed');client.disconnect(true);}
     else {client.guildSyncUser.role=change.user.role;client.guildSyncUser.display_name=preferredUserName(change.user);await sendCurrentAccountProfile(client);}
   }
@@ -525,16 +537,40 @@ async function sendCurrentAccountProfile(socket) {
   if(!socket.guildSyncVersionAdmitted)return;
   if(!socket.guildSyncAuthenticated||socket.guildSyncAuthType==='discord-bot'||socket.guildSyncAuthType==='voice-mute'||!socket.guildSyncUser?.discord_user_id)return;
   try {
-    const [rows]=await loginDB.execute('SELECT discord_user_id, username, global_name, guild_member_name, email, avatar, role FROM guildsync_users WHERE discord_user_id = ? AND allowed = 1 LIMIT 1',[socket.guildSyncUser.discord_user_id]);
-    if(rows[0]) {
-      const profile=buildGuildSyncUserFromDBUser(rows[0]);
-      profile.actual_role=profile.role;
-      profile.role=roleViews.effective(socket.guildSyncRoleViewId,profile.actual_role);
-      socket.guildSyncUser={...socket.guildSyncUser,...profile};
-      socket.emit('guildsync:account-profile',profile);
+    const profile=await currentUserSwitchProfile(socket);
+    if(profile.discord_user_id!==socket.guildSyncUser.discord_user_id ||
+       (profile.user_switch?.revision||0)!==(socket.guildSyncUser.user_switch?.revision||0)) {
+      socket.emit('guildsync:user-switch-changed',{user:profile});
+      setTimeout(()=>socket.disconnect(true),200);
       return profile;
     }
+    socket.guildSyncUser={...socket.guildSyncUser,...profile};
+    socket.emit('guildsync:account-profile',profile);
+    return profile;
   }catch(error){Log('Could not load current GuildSync account profile: '+error.message);}
+}
+
+async function currentUserSwitchProfile(socket) {
+  const claims=await verifyGuildSyncSession(socket.guildSyncToken);
+  const [rows]=await loginDB.execute('SELECT discord_user_id, username, global_name, guild_member_name, email, avatar, role FROM guildsync_users WHERE discord_user_id = ? AND allowed = 1 LIMIT 1',[claims.sub]);
+  if(!rows[0])throw Error('Session was logged out.');
+  return {...buildGuildSyncUserFromDBUser(rows[0]),role:claims.role,actual_role:claims.actual_role,
+    ...(claims.user_switch?{user_switch:claims.user_switch}:{})};
+}
+
+async function notifyUserSwitch(socket,emit=true) {
+  if(!socket.guildSyncVersionAdmitted){socket.disconnect(true);return;}
+  try {
+    const profile=await currentUserSwitchProfile(socket);
+    if(emit)socket.emit('guildsync:user-switch-changed',{user:profile});
+    // Keep the old identity stable for already-running handlers and voice cleanup.
+    setTimeout(()=>socket.disconnect(true),200);
+    return profile;
+  } catch(error) {
+    if(error.message==='Session was logged out.')socket.emit('guildsync:account-removed');
+    socket.disconnect(true);
+    throw error;
+  }
 }
 
 function registerVoiceForSocket(socket){
@@ -545,7 +581,7 @@ function registerVoiceForSocket(socket){
       const owner=await voiceMuteStore.owner(candidate?.guildSyncBot?.guild_id);
       return io.sockets.sockets.get(owner);
     },
-    authorizeUser:current=>authorizeVoiceRequester(current,{service:voiceIdentityService,loginDB,roleViews}),log:Log
+    authorizeUser:current=>!current.guildSyncUser?.user_switch?.active && authorizeVoiceRequester(current,{service:voiceIdentityService,loginDB,roleViews}),log:Log
   });
 
 }
@@ -560,6 +596,11 @@ io.on('connection',socket=>desktopVersionPolicy.admit(socket,()=>registerGuildSy
 function registerGuildSyncConnection(socket) {
   if(registerVoiceOnlyConnection(socket,registerVoiceForSocket))return;
   registerDiscordGuildOrigin(socket, Log);
+  registerUserSwitchGuard(socket,{
+    verify:()=>verifyGuildSyncSession(socket.guildSyncToken),
+    onIdentityChange:()=>notifyUserSwitch(socket),
+    recordOperation:event=>userSwitches.recordOperation(socket,event)
+  });
   registerCommunityStatisticsSocket(socket,{
     db:applicationDB,loadBanking:getBankingDataJSON,
     loadWindows:async(db,time)=>(await getActiveRaffleSummary(db,time)).raffles,
@@ -569,7 +610,21 @@ function registerGuildSyncConnection(socket) {
     }
   });
   registerApplicationHistorySocket(socket,{db:applicationDB,loginDB});
-  registerRolePermissions(socket,loginDB,roleViews);
+  registerRolePermissions(socket,loginDB,roleViews,{authorizeUserSwitch:async current=>{
+    if(!current.guildSyncAuthenticated||current.guildSyncAuthType!=='GuildSync user')return false;
+    return userSwitches.authorize(current.guildSyncActorId);
+  }});
+  registerUserSwitchSocket(socket,userSwitches,{
+    clearRoleView:key=>roleViews.clear(key),
+    afterChange:async source=>{
+      const profile=await currentUserSwitchProfile(source);
+      for(const client of io.sockets.sockets.values())if(client.guildSyncRoleViewId===source.guildSyncRoleViewId){
+        if(client!==source&&client.guildSyncVersionAdmitted)client.emit('guildsync:user-switch-changed',{user:profile});
+        setTimeout(()=>client.disconnect(true),200);
+      }
+      return profile;
+    }
+  });
   registerRoleViewSocket(socket,roleViews,async()=>{
     let profile;
     for(const client of io.sockets.sockets.values()) if(client.guildSyncRoleViewId === socket.guildSyncRoleViewId) {
@@ -2966,13 +3021,14 @@ async function verifyGuildSyncSession(token) {
   if (!rows.length || recreatedLegacyAccount) {
     for (const socket of io.sockets.sockets.values()) {
       if(socket.guildSyncAuthType==='voice-mute')continue;
-      if (claims.jti ? socket.guildSyncSessionId === claims.jti : socket.guildSyncUser?.discord_user_id === claims.sub) socket.disconnect(true);
+      if (claims.jti ? socket.guildSyncSessionId === claims.jti : (socket.guildSyncActorId || socket.guildSyncUser?.discord_user_id) === claims.sub) socket.disconnect(true);
     }
     throw new Error('Session was logged out.');
   }
   claims.actual_role = rows[0].role || 'viewer';
-  claims.role = roleViews.effective(roleViewSessionKey(claims),claims.actual_role);
-  return claims;
+  const effective = await userSwitches.resolve(claims);
+  effective.role = roleViews.effective(roleViewSessionKey(effective),effective.actual_role);
+  return effective;
 }
 
 function getBearerToken(req) {

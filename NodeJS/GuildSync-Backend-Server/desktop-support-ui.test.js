@@ -1,3 +1,4 @@
+import {canUseUserSwitch} from './web/src/user-switch-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -49,7 +50,7 @@ test('a response already in flight cannot repopulate data after the client is bl
  const source=fs.readFileSync(new URL('../../GO/GuildSync-Frontend-Client/frontend/src/main.js',import.meta.url),'utf8');
  const a=source.indexOf('function emitSocketWithAck('),b=source.indexOf('function normalizeDiscordMembers(',a);
  let response;
- const context=vm.createContext({desktopSupport:{blocked:false},desktopVersionAccepted:true,
+ const context=vm.createContext({sessionGeneration:0,canUseUserSwitch,desktopSupport:{blocked:false},desktopVersionAccepted:true,
   guildSyncSession:{user:{role:'user'}},canPerformGuildSyncEvent:()=>true,
   socket:{connected:true,emit:(_event,_payload,callback)=>{response=callback;}},window:{setTimeout:()=>1,clearTimeout(){}}});
  vm.runInContext(source.slice(a,b),context);

@@ -1,4 +1,4 @@
-export const roleViewSessionKey = claims => claims.jti || `legacy:${claims.sub}:${claims.iat}`;
+export const roleViewSessionKey = claims => claims.jti || `legacy:${claims.actor_sub || claims.sub}:${claims.iat}`;
 
 export function createRoleViews(loginDB) {
   const previews = new Map();

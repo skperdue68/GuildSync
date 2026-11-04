@@ -12,7 +12,8 @@ import {
 } from './raffle-schedule.js';
 import {createVoiceHotkeyController} from './voice-hotkey.js';
 import {canEditGuildSyncRole,canIngestGuildSyncRole,canManageGuildSyncLinksRole,canPerformGuildSyncEvent} from './role-permissions.js';
-import {renderRoleViewControls} from './role-view-controls.js';
+import {renderRoleViewControls} from './role-view-controls.js'; // Retained for restoration; see docs/admin-user-switch.md.
+import {renderUserSwitchControls,canUseUserSwitch} from './user-switch-controls.js';
 import {createUserAdministrationPanel,pendingBadge} from './user-administration.js';
 import './user-administration.css';
 import {reconcileDataRows,syncDataHTML,syncDataText} from './live-data-view.js';
@@ -76,6 +77,10 @@ let saveTimer = null;
 let resizeObserver = null;
 let resizeHandlerAttached = false;
 let profileMenuOpen = false;
+let sessionGeneration = 0;
+let userSwitchOptions = [];
+let userSwitchBusy = false;
+let userSwitchTransition = false;
 let desktopVersionAccepted = false;
 let desktopVersionHandshakeTimer = null;
 const desktopSupport=createDesktopSupport({onBlocked:stopUnsupportedDesktop});
@@ -118,7 +123,7 @@ let desktopClientUpdateInfo = {
 let socket = null;
 const voiceHotkey = createVoiceHotkeyController({
   bridge: new Proxy({}, {get: (_, name) => (...args) => window.go.main.App[name](...args)}),
-  eventsOn: EventsOn, getSocket: () => socket, authenticated: () => isAuthenticatedSession(),
+  eventsOn: EventsOn, getSocket: () => socket, authenticated: () => isAuthenticatedSession() && !userSwitchTransition && !guildSyncSession.user?.user_switch?.active,
   changed: () => {
     if (!profileMenuOpen) return;
     const menu = document.querySelector('#discordProfileMenu');
@@ -242,7 +247,7 @@ let raffleBonusSettings = null;
 let raffleBonusDraft = null;
 let bonusResetToDefaults = false;
 const reportsAccordion=createAccordionState();
-const communityStatisticsPanel=createCommunityStatisticsPanel({request:(event,payload)=>emitSocketWithAck(event,payload,30000),getSessionKey:()=>isAuthenticatedSession()?guildSyncSession.token:''});
+const communityStatisticsPanel=createCommunityStatisticsPanel({request:(event,payload)=>emitSocketWithAck(event,payload,30000),getSessionKey:()=>isAuthenticatedSession()?`${guildSyncSession.token}:${guildSyncSession.user?.discord_user_id}:${sessionGeneration}`:''});
 const adminConfigurationPanel=createConfigurationPanel({canEdit:()=>guildSyncSession?.user?.role === 'admin'});
 let raffleBonusRaffles = [];
 let selectedBonusRaffle = '';
@@ -5157,6 +5162,8 @@ async function refreshRosterDataFromBackend(options = {}) {
 }
 
 async function collectAndSendGuildSyncRosterData(payload = {}) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!canIngestGuildSyncData()) {
     return;
   }
@@ -5173,6 +5180,7 @@ async function collectAndSendGuildSyncRosterData(payload = {}) {
 
   try {
     const result = await CollectGuildSyncRosterData(payload);
+    if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
 
     if (!result?.ok) {
       addSystemMessage('roster-data-pending', result?.message || 'Roster SavedVariables changed, but no roster data was sent yet.', {
@@ -5252,6 +5260,8 @@ function removePendingGuildSyncRosterUpload(uploadId) {
 }
 
 async function processPendingGuildSyncRosterUploads() {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (rosterUploadQueueProcessing || !socket?.connected || !canIngestGuildSyncData()) {
     return;
   }
@@ -5282,6 +5292,8 @@ async function processPendingGuildSyncRosterUploads() {
 }
 
 async function sendQueuedGuildSyncRosterUpload(rosterPayload) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)throw new Error("Native uploads are paused while switching accounts.");
   if (!socket?.connected) {
     throw new Error('GuildSync websocket is not connected. Roster data was not cleared.');
   }
@@ -5292,6 +5304,7 @@ async function sendQueuedGuildSyncRosterUpload(rosterPayload) {
     throw new Error(response?.message || response?.error || 'Backend rejected the roster data payload. Roster data was not cleared.');
   }
 
+  if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)throw new Error("Account session changed before native commit.");
   const commitResult = await CommitGuildSyncRosterData(
     rosterPayload.file_path || '',
     rosterPayload.file_name || ''
@@ -5310,6 +5323,8 @@ async function sendQueuedGuildSyncRosterUpload(rosterPayload) {
 
 
 async function collectAndSendGuildSyncApplicationsData(payload = {}) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!canIngestGuildSyncData()) {
     return;
   }
@@ -5323,6 +5338,7 @@ async function collectAndSendGuildSyncApplicationsData(payload = {}) {
 
   try {
     const result = await CollectGuildSyncApplicationsData(payload);
+    if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
 
     if (!result?.ok) {
       addSystemMessage('applications-data-info', result?.message || 'No application records were found to process.', {
@@ -5407,6 +5423,8 @@ function removePendingGuildSyncApplicationsUpload(uploadId) {
 }
 
 async function processPendingGuildSyncApplicationsUploads() {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (applicationsUploadQueueProcessing || !socket?.connected || !canIngestGuildSyncData()) {
     return;
   }
@@ -5437,6 +5455,8 @@ async function processPendingGuildSyncApplicationsUploads() {
 }
 
 async function sendQueuedGuildSyncApplicationsUpload(applicationsPayload) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)throw new Error("Native uploads are paused while switching accounts.");
   if (!socket?.connected) {
     throw new Error('GuildSync websocket is not connected. Application data was not cleared.');
   }
@@ -5469,6 +5489,7 @@ async function sendQueuedGuildSyncApplicationsUpload(applicationsPayload) {
     sentCount += 1;
   }
 
+  if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)throw new Error("Account session changed before native commit.");
   const commitResult = await CommitGuildSyncApplicationsData(
     applicationsPayload.file_path || '',
     applicationsPayload.file_name || '',
@@ -7158,6 +7179,7 @@ async function refreshBankingDataFromBackend(options = {}) {
 }
 
 async function refreshDepositMailAvailabilityFromBackend() {
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!socket?.connected || !canEditGuildSyncData() || bankingDataLoading) {
     return;
   }
@@ -7174,6 +7196,7 @@ async function refreshDepositMailAvailabilityFromBackend() {
 }
 
 function startDepositMailAvailabilityPolling() {
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (depositMailAvailabilityPollTimer) {
     clearInterval(depositMailAvailabilityPollTimer);
   }
@@ -7191,6 +7214,9 @@ function stopDepositMailAvailabilityPolling() {
 
 
 async function collectAndSendDepositMailAck(payload = {}) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!canEditGuildSyncData()) {
     return;
   }
@@ -7204,6 +7230,7 @@ async function collectAndSendDepositMailAck(payload = {}) {
 
   try {
     const ackResult = await CollectDepositMailAckFromGuildSyncBanking(payload);
+    if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
     if (!ackResult?.ok) {
       return;
     }
@@ -7238,6 +7265,7 @@ async function collectAndSendDepositMailAck(payload = {}) {
       return;
     }
 
+    if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
     const cleanupResult = await CleanupDepositMailAckFromGuildSyncBanking(confirmedIds);
     if (!cleanupResult?.ok) {
       throw new Error(cleanupResult?.message || 'Backend confirmed sent mail, but local mailAck cleanup failed.');
@@ -7256,12 +7284,16 @@ async function collectAndSendDepositMailAck(payload = {}) {
 }
 
 async function flushPendingDepositMailAckCleanup() {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!canEditGuildSyncData()) return;
   if (depositMailAckCleanupFlushRunning) {
     return;
   }
   depositMailAckCleanupFlushRunning = true;
   try {
+    if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
     const result = await FlushPendingDepositMailAckCleanup();
     if (result?.ok && Number(result.removedCount || 0) > 0) {
       addSystemMessage('deposit-mail-ack-cleanup-flushed', result.message || 'Cleaned up pending deposit mail acknowledgements.', {
@@ -7278,6 +7310,8 @@ async function flushPendingDepositMailAckCleanup() {
 }
 
 async function collectAndSendGuildSyncBankingData(payload = {}) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!canIngestGuildSyncData()) {
     return;
   }
@@ -7294,6 +7328,7 @@ async function collectAndSendGuildSyncBankingData(payload = {}) {
 
   try {
     const result = await CollectGuildSyncBankingData(payload);
+    if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
 
     if (!result?.ok) {
       addSystemMessage('banking-data-pending', result?.message || 'Banking SavedVariables changed, but no banking data was sent yet.', {
@@ -7376,6 +7411,9 @@ function removePendingDepositMailBatch(batchId) {
 }
 
 async function checkoutDepositMailFromBackend() {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (!canEditGuildSyncData()) {
     addSystemMessage('deposit-mail-login-required', 'Login required to check out deposit mail.', { ttlMs: TRANSIENT_MESSAGE_TTL_MS });
     return;
@@ -7449,6 +7487,9 @@ function schedulePendingDepositMailAutoWrite(reason = '') {
 }
 
 async function processPendingDepositMailBatches() {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (depositMailPendingWriteAutoTimer) {
     window.clearTimeout(depositMailPendingWriteAutoTimer);
     depositMailPendingWriteAutoTimer = null;
@@ -7503,6 +7544,7 @@ async function processPendingDepositMailBatches() {
         addSystemMessage('deposit-mail-expired', 'This checkout expired or is no longer assigned to you. Its local pending batch was removed without writing to ESO.', {ttlMs:TRANSIENT_MESSAGE_TTL_MS});
         continue;
       }
+      if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
       const writeResult = await WriteDepositMailToGuildSyncBanking(authorizedRecords);
       if (!writeResult?.ok) {
         throw new Error(writeResult?.message || 'Deposit mail could not be written to GuildSyncBanking.lua. The batch remains reserved for retry.');
@@ -7609,6 +7651,8 @@ function removePendingGuildSyncBankingUpload(uploadId) {
 }
 
 async function processPendingGuildSyncBankingUploads() {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)return;
   if (bankingUploadQueueProcessing || !socket?.connected || !canIngestGuildSyncData()) {
     return;
   }
@@ -7639,6 +7683,8 @@ async function processPendingGuildSyncBankingUploads() {
 }
 
 async function sendQueuedGuildSyncBankingUpload(bankingPayload) {
+  const nativeGeneration=sessionGeneration;
+  if(userSwitchTransition || guildSyncSession.user?.user_switch?.active)throw new Error("Native uploads are paused while switching accounts.");
   if (!socket?.connected) {
     throw new Error('GuildSync websocket is not connected. Banking data was not cleared.');
   }
@@ -7649,6 +7695,7 @@ async function sendQueuedGuildSyncBankingUpload(bankingPayload) {
     throw new Error(response?.message || response?.error || 'Backend rejected the banking data payload. Banking data was not cleared.');
   }
 
+  if(nativeGeneration!==sessionGeneration || userSwitchTransition || guildSyncSession.user?.user_switch?.active)throw new Error("Account session changed before native commit.");
   const commitResult = await CommitGuildSyncBankingData(
     bankingPayload.file_path || '',
     bankingPayload.file_name || ''
@@ -7892,7 +7939,9 @@ async function refreshDiscordData(options = {}) {
 
 function emitSocketWithAck(eventName, payload = {}, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
-    if (!(eventName === 'guildsync:set-role-view' && (guildSyncSession.user?.actual_role || guildSyncSession.user?.role) === 'admin') && !canPerformGuildSyncEvent(guildSyncSession.user?.role,eventName)) {
+    const requestGeneration=sessionGeneration;
+    const requestSocket=socket;
+    if (!(canUseUserSwitch(guildSyncSession.user) && ['guildsync:request-user-switch-options','guildsync:set-user-switch'].includes(eventName)) && !(eventName === 'guildsync:set-role-view' && (guildSyncSession.user?.actual_role || guildSyncSession.user?.role) === 'admin') && !canPerformGuildSyncEvent(guildSyncSession.user?.role,eventName)) {
       reject(new Error('Your current role or view does not have permission to perform this action.'));
       return;
     }
@@ -7923,6 +7972,7 @@ function emitSocketWithAck(eventName, payload = {}, timeoutMs = 30000) {
         reject(new Error('This GuildSync desktop connection is unsupported or no longer active.'));
         return;
       }
+      if(requestGeneration!==sessionGeneration || requestSocket!==socket){reject(new Error('Account session changed.'));return;}
       resolve(response);
     });
   });
@@ -8461,8 +8511,10 @@ function updateUserAdministrationBadge(count) {
 }
 
 function handleCurrentAccountProfile(user) {
-  if(!user||user.discord_user_id!==guildSyncSession.user?.discord_user_id)return;
-  const previousRole=guildSyncSession.user.role;guildSyncSession.user={...guildSyncSession.user,...user};
+  if(!user)return;
+  if(user.user_switch?.epoch===guildSyncSession.user?.user_switch?.epoch && user.user_switch?.revision!=null && Number(user.user_switch.revision)<Number(guildSyncSession.user?.user_switch?.revision||0))return;
+  if(user.discord_user_id!==guildSyncSession.user?.discord_user_id || user.role!==guildSyncSession.user?.role || Boolean(user.user_switch?.active)!==Boolean(guildSyncSession.user?.user_switch?.active)){applyUserSwitchProfile(user);return;}
+  const previousRole=guildSyncSession.user.role;guildSyncSession.user={...user};
   if(previousRole!==user.role)void voiceHotkey.invalidateAccess();
   if(previousRole!==user.role){
     userAdministrationPanel.reset();adminConfigurationPanel.clear();
@@ -8620,12 +8672,14 @@ function renderOpenProfileMenuContents() {
       </div>
       ${guildSyncSession.user?.role==='admin'?`<section class="profile-section profile-user-management-section" aria-label="User Management"><div class="profile-section-header">User Management</div><button id="manageGuildSyncUsersButton" class="user-admin-menu-button" type="button"><span>Manage GuildSync Users</span><span id="userAdminMenuCount"></span></button></section>`:''}
       <div id="voiceHotkeyMount">${voiceHotkey.render()}</div>
-      ${renderRoleViewControls(guildSyncSession.user)}
+      ${renderUserSwitchControls(guildSyncSession.user,userSwitchOptions)}
       <button id="discordLogoutButton" class="discord-secondary-button profile-logout-button" type="button">Logout</button>
     </section>
   `;
 
   voiceHotkey.wire(menu);
+  menu.querySelector('#returnToMyAccount')?.addEventListener('click',()=>void changeGuildSyncUser(null));
+  menu.querySelector('#switchGuildSyncAccount')?.addEventListener('change',event=>{if(event.target.value)void changeGuildSyncUser(event.target.value);});
   menu.querySelectorAll('[data-role-view]').forEach(button=>button.addEventListener('click',()=>void changeGuildSyncRoleView(button.dataset.roleView)));
   document.querySelector('#manageGuildSyncUsersButton')?.addEventListener('click',()=>{closeProfileMenu(false);userAdministrationPanel.open();});
   updateUserAdministrationBadge(userAdministrationPanel.count);
@@ -8645,6 +8699,182 @@ function renderOpenProfileMenuContents() {
     .forEach((toggle) => {
       toggle.addEventListener('change', handleProfileFileWatchToggleChange);
     });
+}
+
+async function loadUserSwitchOptions() {
+ if(!canUseUserSwitch(guildSyncSession.user)||guildSyncSession.user.user_switch.active)return;
+ const generation=sessionGeneration;
+ try {
+  const response=await emitSocketWithAck('guildsync:request-user-switch-options',{});
+  if(generation!==sessionGeneration)return;
+  if(!response?.ok)throw new Error(response?.message || 'Could not load approved accounts.');
+  userSwitchOptions=Array.isArray(response.users)?response.users:[];
+  if(profileMenuOpen)renderOpenProfileMenuContents();
+ } catch(error){addSystemMessage('user-switch-error',formatError(error),{ttlMs:TRANSIENT_MESSAGE_TTL_MS});}
+}
+async function changeGuildSyncUser(discord_user_id) {
+ if(userSwitchBusy)return;
+ userSwitchBusy=true;
+ userSwitchTransition=true;
+ try {
+  await voiceHotkey.connection(false,{waitForRelease:true});
+  stopDepositMailAvailabilityPolling();
+  window.clearTimeout(depositMailPendingWriteAutoTimer);
+  await StopGuildSyncFileWatcher();
+  const response=await emitSocketWithAck('guildsync:set-user-switch',{discord_user_id});
+  if(!response?.ok)throw new Error(response?.message||'Could not switch account.');
+  applyUserSwitchProfile(response.user);
+ } catch(error){if(error?.message!=='Account session changed.')addSystemMessage('user-switch-error',formatError(error),{ttlMs:TRANSIENT_MESSAGE_TTL_MS});}
+ finally{userSwitchBusy=false;userSwitchTransition=false;if(!guildSyncSession.user?.user_switch?.active){void voiceHotkey.connection(true);void syncGuildSyncFileWatcherWithAuthState({silent:true});startDepositMailAvailabilityPolling();}}
+}
+function applyUserSwitchProfile(user) {
+ if(!user)return;
+ const previous=guildSyncSession.user;
+ if(user.user_switch?.epoch===previous?.user_switch?.epoch && user.user_switch?.revision!=null && Number(user.user_switch.revision)<Number(previous?.user_switch?.revision||0))return;
+ if(previous?.discord_user_id===user.discord_user_id && previous?.role===user.role && Boolean(previous?.user_switch?.active)===Boolean(user.user_switch?.active)){handleCurrentAccountProfile(user);return;}
+ sessionGeneration++;
+ stopESOStatusPolling(); stopDepositMailAvailabilityPolling();
+ window.clearTimeout(depositMailPendingWriteAutoTimer); depositMailPendingWriteAutoTimer=null;
+ disconnectSocket(false);
+ userAdministrationPanel.reset(); adminConfigurationPanel.clear();
+ pendingTabDataRefreshes.clear(); userSwitchOptions=[];
+
+  voiceHotkey.stop();
+  void StopGuildSyncFileWatcher();
+  discordHistoryLoadGeneration++;
+  rosterHistorySearchGeneration++;
+  discordMembers = [];
+  discordRoles = [];
+  discordLastRefreshValue = null;
+  discordDataLoading = false;
+  discordRefreshRequestRunning = false;
+  discordDataError = '';
+  discordSearchText = '';
+  discordSelectedRoleNames = new Set();
+  discordSelectedLinkStatuses = new Set();
+  discordSortColumn = 'username';
+  discordSortDirection = 'asc';
+  discordSearchSelectionStart = null;
+  discordSearchSelectionEnd = null;
+  rosterMembers = [];
+  rosterLastRefreshValue = null;
+  rosterDataLoading = false;
+  rosterAutoRefreshAttempted = false;
+  rosterSearchText = '';
+  rosterSearchSelectionStart = null;
+  rosterSearchSelectionEnd = null;
+  rosterSelectedRankNames = new Set();
+  rosterSelectedLinkStatuses = new Set();
+  rosterSortColumn = '';
+  rosterSortDirection = '';
+  rosterSearchActiveIndex = -1;
+  rosterHistoryDialogOpen = false;
+  rosterHistorySearchText = '';
+  rosterHistoryMatches = [];
+  rosterHistorySelectedAccount = '';
+  rosterHistoryApplications = [];
+  rosterHistoryApplicationsLoaded = false;
+  rosterHistoryLoadGeneration++;
+  rosterHistoryEvents = [];
+  rosterHistoryLoading = false;
+  rosterHistoryError = '';
+  window.clearTimeout(rosterHistorySearchTimer); rosterHistorySearchTimer=null;
+  rosterHistoryActiveMatchIndex = -1;
+  rosterNotesDialogOpen = false;
+  rosterNotesDialogAccountName = '';
+  rosterNotesDialogNotes = [];
+  rosterNotesLoadGeneration++;
+  rosterNotesDialogLoading = false;
+  rosterNotesDialogSaving = false;
+  rosterNotesDialogError = '';
+  rosterNotesDialogNewNote = '';
+  discordHistoryDialogOpen = false;
+  discordHistorySearchText = '';
+  discordHistoryMatches = [];
+  discordHistorySelectedID = '';
+  discordHistorySelectedName = '';
+  discordHistoryEvents = [];
+  discordHistoryLoading = false;
+  discordHistoryError = '';
+  window.clearTimeout(discordHistorySearchTimer); discordHistorySearchTimer=null;
+  discordHistorySearchGeneration++;
+  discordHistoryActiveMatchIndex = -1;
+  associateTicketReportDialogOpen = false;
+  associateTicketReportRows = [];
+  associateTicketReportLoading = false;
+  associateTicketReportError = '';
+  discordRankAuditReportDialogOpen = false;
+  discordRankAuditReportRows = [];
+  discordRankAuditReportLoading = false;
+  discordRankAuditReportError = '';
+  discordLastSeenReportDialogOpen = false;
+  discordLastSeenReportRows = [];
+  discordLastSeenReportLoading = false;
+  discordLastSeenReportError = '';
+  discordLastSeenReportSearchTerm = '';
+  discordLastSeenReportLinkStatusFilter = '';
+  discordLastSeenReportSortColumn = '';
+  discordLastSeenReportSortDirection = '';
+  memberLinks = [];
+  memberLinksLoading = false;
+  memberLinksError = '';
+  memberLinksReportDialogOpen = false;
+  memberLinksReportSearchTerm = '';
+  memberLinksReportActionFilter = '';
+  memberLinksReportStatusFilter = '';
+  memberLinksReportMethodFilter = '';
+  memberLinksReportSelectedRowIndex = -1;
+  memberLinksReportScrollTop = 0;
+  memberLinkDialogOpen = false;
+  memberLinkDialogContext = null;
+  memberLinkDialogOptions = [];
+  memberLinkDialogLoading = false;
+  memberLinkDialogError = '';
+  memberLinkDialogSearchTerm = '';
+  memberLinkDialogSelectedOptionIndex = -1;
+  guildSyncConfirmDialogOpen = false;
+  guildSyncConfirmDialog = null;
+  guildSyncConfirmResolve = null;
+  bankingEntries = [];
+  raffleBonusSettings = null;
+  raffleBonusDraft = null;
+  bonusResetToDefaults = false;
+  raffleBonusRaffles = [];
+  selectedBonusRaffle = '';
+  raffleBonusSettingsRequested = false;
+  bankingActiveSection = 'biweekly';
+  bankingLastRefreshValue = null;
+  bankingDataLoading = false;
+  bankingExportGridOpen = false;
+  bankingExportSection = 'biweekly';
+  bankingMoveDialogOpen = false;
+  bankingMoveSubmitting = false;
+  bankingMoveError = '';
+  bankingMoveEntry = null;
+  bankingMoveForm = { targetType: 'other', note: '', tickets: '' };
+  bankingHistoryDialogOpen = false;
+  bankingHistorySearchText = '';
+  bankingHistoryMatches = [];
+  bankingHistoryRecords = [];
+  bankingHistorySelectedAccount = '';
+  bankingHistoryLoading = false;
+  bankingHistoryError = '';
+  window.clearTimeout(bankingHistorySearchTimer); bankingHistorySearchTimer=null;
+  bankingHistoryActiveMatchIndex = -1;
+  manualBiweeklyTicketDialogOpen = false;
+  manualBiweeklyTicketSubmitting = false;
+  manualBiweeklyTicketError = '';
+  manualBiweeklyTicketForm = { accountName: '', note: '', ticketType: 'biweekly', goldValue: '', tickets: '' };
+  manualBiweeklyTicketAccountSearchText = '';
+  manualBiweeklyTicketActiveMatchIndex = -1;
+  manualBiweeklyTicketAccountDropdownOpen = false;
+  bankingRafflePeriodOffsets = {
+  biweekly: 0,
+  monthly: 0
+};
+ guildSyncSession={...guildSyncSession,user};
+ renderGuildSyncTabLayout(); renderDiscordArea(); connectSocket();
+ void syncGuildSyncFileWatcherWithAuthState({silent:true});
 }
 
 async function changeGuildSyncRoleView(role) {
@@ -8715,6 +8945,7 @@ function openProfileMenu() {
   menu.classList.add('open');
   menu.setAttribute('aria-hidden', 'false');
   profileMenuOpen = true;
+  void loadUserSwitchOptions();
   void voiceHotkey.refreshAccess();
 
   refreshProfileFileWatcherStatus();
@@ -8859,8 +9090,12 @@ function connectSocket() {
   }
 
   socket = io(socketURL, socketOptions);
+  const connectedSocket=socket;
+  const onCurrentSocket=(event,handler)=>connectedSocket.on(event,(...args)=>{
+    if(socket===connectedSocket)return handler(...args);
+  });
 
-  socket.on('connect', () => {
+  onCurrentSocket('connect', () => {
     desktopVersionAccepted = false;
     updateStatusDot();
     window.clearTimeout(desktopVersionHandshakeTimer);
@@ -8873,19 +9108,20 @@ function connectSocket() {
     sendVersionCheck();
   });
 
-  socket.on('guildsync:users-changed',payload=>userAdministrationPanel.changed(payload));
-  socket.on('guildsync:account-profile',handleCurrentAccountProfile);
-  socket.on('guildsync:account-removed',()=>void logoutGuildSync());
-  socket.on('guildsync:voice-mute-access-changed',()=>void voiceHotkey.invalidateAccess());
+  onCurrentSocket('guildsync:users-changed',payload=>userAdministrationPanel.changed(payload));
+  onCurrentSocket('guildsync:account-profile',user=>{if(socket===connectedSocket)handleCurrentAccountProfile(user);});
+  onCurrentSocket('guildsync:user-switch-changed',payload=>{if(socket===connectedSocket)applyUserSwitchProfile(payload?.user);});
+  onCurrentSocket('guildsync:account-removed',()=>void logoutGuildSync());
+  onCurrentSocket('guildsync:voice-mute-access-changed',()=>void voiceHotkey.invalidateAccess());
 
-  socket.on('connect_error', error => {
+  onCurrentSocket('connect_error', error => {
     if (error?.data?.supported === false) desktopSupport.receive(error.data);
     userAdministrationPanel.stop();
     updateStatusDot();
     stopVersionCheckTimer();
   });
 
-  socket.on('disconnect', () => {
+  onCurrentSocket('disconnect', () => {
     desktopVersionAccepted = false;
     window.clearTimeout(desktopVersionHandshakeTimer);
     void voiceHotkey.connection(false);
@@ -8896,32 +9132,32 @@ function connectSocket() {
     stopDepositMailAvailabilityPolling();
   });
 
-  socket.on('guildsync:version-status', (payload) => {
+  onCurrentSocket('guildsync:version-status', (payload) => {
     handleVersionStatus(payload);
   });
 
-  socket.on('guildsync:discord-member-data-updated', (payload) => {
+  onCurrentSocket('guildsync:discord-member-data-updated', (payload) => {
     void voiceHotkey.refreshAccess();
     handleDiscordMemberDataUpdated(payload);
   });
 
-  socket.on('guildsync:banking-data-updated', (payload) => {
+  onCurrentSocket('guildsync:banking-data-updated', (payload) => {
     handleBankingDataUpdated(payload);
   });
 
-  socket.on('guildsync:roster-notes-access-changed', () => {
+  onCurrentSocket('guildsync:roster-notes-access-changed', () => {
     rosterNotesLoadGeneration++;
     rosterNotesDialogNotes = [];
     if (rosterNotesDialogOpen) void openRosterNotesDialog(rosterNotesDialogAccountName);
   });
 
-  socket.on('guildsync:roster-data-updated', (payload) => {
+  onCurrentSocket('guildsync:roster-data-updated', (payload) => {
     handleRosterDataUpdated(payload);
   });
 
-  socket.on('guildsync:member-links-updated', handleMemberLinksUpdated);
+  onCurrentSocket('guildsync:member-links-updated', handleMemberLinksUpdated);
 
-  socket.on('guildsync:discord-refresh-status', (payload = {}) => {
+  onCurrentSocket('guildsync:discord-refresh-status', (payload = {}) => {
     const message = String(payload.message || '').trim();
 
     if (message) {
@@ -9517,7 +9753,7 @@ async function syncGuildSyncFileWatcherWithAuthState(options = {}) {
   try {
     if (canIngestGuildSyncData() && desktopVersionAccepted) {
       const status = await StartGuildSyncFileWatcher();
-      if (desktopSupport.blocked) { await StopGuildSyncFileWatcher(); return; }
+      if (desktopSupport.blocked || guildSyncSession.user?.user_switch?.active) { await StopGuildSyncFileWatcher(); return; }
       guildSyncFileWatcherStatus = status;
 
       if (!options.silent && status?.message) {
@@ -9667,7 +9903,7 @@ function canEditGuildSyncData() {
 }
 
 function canIngestGuildSyncData() {
-  return isAuthenticatedSession() && canIngestGuildSyncRole(guildSyncSession.user?.role);
+  return !userSwitchTransition && !guildSyncSession.user?.user_switch?.active && isAuthenticatedSession() && canIngestGuildSyncRole(guildSyncSession.user?.role);
 }
 
 function canManageGuildSyncLinks() {

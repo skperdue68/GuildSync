@@ -42,7 +42,7 @@ for(const client of ['web/src','../../GO/GuildSync-Frontend-Client/frontend/src'
   const source=fs.readFileSync(new URL(`./${client}/main.js`,import.meta.url),'utf8');
   const a=source.indexOf('async function processPendingDepositMailBatches('),b=source.indexOf('async function refreshESORunningStatus(',a);
   const calls=[],removed=[];
-  const ctx=vm.createContext({depositMailPendingWriteAutoTimer:null,depositMailPendingWriteRunning:false,canEditGuildSyncData:()=>true,
+  const ctx=vm.createContext({sessionGeneration:0,userSwitchTransition:false,guildSyncSession:{user:{role:"user"}},depositMailPendingWriteAutoTimer:null,depositMailPendingWriteRunning:false,canEditGuildSyncData:()=>true,
     loadPendingDepositMailBatches:()=>[{mail_batch_id:'old',records:[{eventId:'1'},{eventId:'2'}]}],normalizeBankingEntries:r=>r,
     refreshESORunningStatus:async()=>{},esoRunningStatus:{running:false},updateBankingDataView(){},addSystemMessage(){},TRANSIENT_MESSAGE_TTL_MS:1,
     WriteDepositMailToGuildSyncBanking:async records=>{calls.push({write:records});return {ok:true};},socket:{connected},

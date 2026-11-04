@@ -38,6 +38,6 @@ test('actual logout handler clears preview and removes the login session',async(
  const text=source.slice(start,source.indexOf("app.post('/api/guildsync/upload-savedvars",start));
  const views=createRoleViews({execute:async()=>[[{role:'admin',allowed:1}]]});await views.set('1','session','viewer');
  let handler,deleted=false,disconnected=false;
- vm.runInNewContext(text,{app:{post:(path,fn)=>handler=fn},verifyGuildSyncSession:async()=>({sub:'1',jti:'session',role:'viewer',actual_role:'admin'}),getBearerToken:()=> 'token',roleViews:views,roleViewSessionKey,loginDB:{execute:async()=>deleted=true},io:{sockets:{sockets:new Map([['socket',{guildSyncSessionId:'session',disconnect:()=>disconnected=true}]])}},jwt:{}});
+ vm.runInNewContext(text,{app:{post:(path,fn)=>handler=fn},verifyGuildSyncSession:async()=>({sub:'1',jti:'session',role:'viewer',actual_role:'admin'}),getBearerToken:()=> 'token',roleViews:views,userSwitches:{clear:async()=>{}},roleViewSessionKey,loginDB:{execute:async()=>deleted=true},io:{sockets:{sockets:new Map([['socket',{guildSyncSessionId:'session',disconnect:()=>disconnected=true}]])}},jwt:{}});
  const result=await handler({}, {json:body=>body});assert.equal(result.ok,true);assert.equal(deleted,true);assert.equal(disconnected,true);assert.equal(views.effective('session','admin'),'admin');
 });
