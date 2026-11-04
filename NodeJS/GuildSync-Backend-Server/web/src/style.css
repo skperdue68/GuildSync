@@ -5246,8 +5246,12 @@ body {
 
 /* GuildSync mobile web layout refinement.
    Hides desktop-only web functions on mobile, changes fixed desktop panels into
-   scrollable mobile cards, and keeps all data reachable on small screens. */
-@media (max-width: 760px), (pointer: coarse) and (max-width: 920px) {
+   scrollable mobile cards, and keeps all data reachable on small screens.
+   Every coarse pointer qualifies, not only narrow viewports: a phone browsing in
+   "desktop site" mode reports roughly 980px, and tablets sit at or above that
+   width. Capping the query at a width sent those devices the desktop shell,
+   which pins the page to 100vh with overflow hidden so nothing could scroll. */
+@media (max-width: 760px), (pointer: coarse) {
   html,
   body,
   #app {
