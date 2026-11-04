@@ -90,6 +90,10 @@ export function createConfigurationPanel({canEdit=()=>false}={}){
         </div>`;
        }).join('')}
       </section>`).join('')}
+      ${editable?`<div class="configuration-actions configuration-section-actions">
+       <button type="button" data-config-save="${escape(group)}" ${saving?'disabled':''}>${saving?'Saving...':'Save configuration'}</button>
+       <button type="button" data-config-reload="${escape(group)}" ${saving?'disabled':''}>Discard edits and reload</button>
+      </div>`:''}
      </fieldset>`;
     }).join('')}
     <div class="configuration-actions">${editable?`<button type="submit" ${saving?'disabled':''}>${saving?'Saving...':'Save Configuration'}</button>`:''}<button type="button" id="reloadAdminConfiguration" ${saving?'disabled':''}>${editable?'Discard edits and reload':'Refresh configuration'}</button></div>
@@ -108,13 +112,24 @@ export function createConfigurationPanel({canEdit=()=>false}={}){
    const preview=document.querySelector(`[data-config-preview="${key}"]`);if(preview)preview.textContent=receiptPreview(element.value,{body:key.endsWith('BODY_TEMPLATE')});
   });
   for(const element of document.querySelectorAll('[data-config-default]'))element.addEventListener('click',()=>{if(!canEdit())return;changes[element.dataset.configDefault]=null;rerender();});
-  document.getElementById('adminConfigurationForm')?.addEventListener('submit',async event=>{
-   event.preventDefault();if(!canEdit()||saving)return;if(!Object.keys(changes).length){message='No changes to save.';rerender();return;}saving=true;message='';
+  const save=async()=>{
+   if(!canEdit()||saving)return;if(!Object.keys(changes).length){message='No changes to save.';rerender();return;}saving=true;message='';
    const pending={...changes};
    // Freeze this form during save so edits cannot be silently lost in the acknowledgement.
    rerender();document.getElementById('adminConfigurationForm')?.querySelectorAll('input,select,textarea,button').forEach(e=>e.disabled=true);
    try{const response=await request('guildsync:save-admin-configuration',{revision:configuration.revision,changes:pending});if(!response?.ok)throw Error(response?.message || 'Could not save configuration.');configuration=response.configuration;changes={};message='Configuration saved. Backend settings are active; the connected bot applies its settings after active deliveries finish. An offline bot applies them when it reconnects.';}
    catch(error){message=error.message;}finally{saving=false;rerender();}
+  };
+  const form=document.getElementById('adminConfigurationForm');
+  // Each settings group repeats the footer controls, so saving never requires scrolling to the end.
+  form?.addEventListener('click',event=>{
+   const button=event.target?.closest?.('button[data-config-save],button[data-config-reload]');
+   if(!button)return;
+   event.preventDefault();
+   if(button.dataset.configSave!==undefined)void save();else void load();
+  });
+  form?.addEventListener('submit',async event=>{
+   event.preventDefault();await save();
   });
  };
  return {render,wire,clear(){configuration=null;changes={};message='';}};
