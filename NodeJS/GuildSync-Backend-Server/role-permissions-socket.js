@@ -1,10 +1,15 @@
+import {USER_SWITCH_EVENTS} from './user-switch.js';
 import {canPerformGuildSyncEvent, isReadOnlyGuildSyncEvent} from './role-permissions.js';
 
-export function registerRolePermissions(socket, loginDB, views) {
+export function registerRolePermissions(socket, loginDB, views, {authorizeUserSwitch=async()=>false}={}) {
   socket.use(async (packet, next) => {
     const event = String(packet[0] || '');
     if (!event.startsWith('guildsync:') || socket.guildSyncAuthType === 'discord-bot' || isReadOnlyGuildSyncEvent(event)) return next();
     try {
+      if(USER_SWITCH_EVENTS.has(event)) {
+        if(await authorizeUserSwitch(socket,event))return next();
+        throw Error('Admin access is required to switch users.');
+      }
       if (socket.guildSyncAuthenticated && socket.guildSyncUser?.discord_user_id) {
         const [rows] = await loginDB.execute(
           'SELECT role, allowed FROM guildsync_users WHERE discord_user_id = ? LIMIT 1',

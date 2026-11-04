@@ -84,3 +84,17 @@ test('saving preserves an asynchronous native setup failure and suppresses polli
  await control.refreshAccess();assert.deepEqual(active,[true,false]);assert.match(control.render(),/Voice mute is unavailable/);
  const status={textContent:''};control.wire({querySelector:selector=>selector==='#voiceHotkeyStatus'?status:null});assert.equal(status.textContent,'Linux Global Shortcuts API unavailable');control.stop();
 });
+
+test('account switching waits for an outstanding voice release acknowledgement',async()=>{
+ let edge,releaseAck,finished=false;
+ const socket={connected:true,emit(event,payload,ack){if(event==='guildsync:voice-mute-access')return ack({ok:true,enabled:true,allowed:true});if(payload.state==='released')releaseAck=ack;else ack?.({ok:true});}};
+ const control=createVoiceHotkeyController({bridge:{GetVoiceHotkeySettings:async()=>({enabled:true,supported:true,shortcut:'Ctrl+M'}),SetVoiceHotkeyActive:async()=>{}},eventsOn(_,fn){edge=fn;},getSocket:()=>socket,authenticated:()=>true});
+ await control.connection(true);edge({state:'pressed'});edge({state:'released'});
+ const pending=control.connection(false,{waitForRelease:true}).then(()=>finished=true);
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(finished,false);releaseAck({ok:true});await pending;assert.equal(finished,true);control.stop();
+});
+test('an unconfirmed voice release blocks switching rather than dropping cleanup',async()=>{
+ let edge;const socket={connected:true,emit(event,payload,ack){if(event==='guildsync:voice-mute-access')return ack({ok:true,enabled:true,allowed:true});ack?.(payload.state==='released'?{ok:false,message:'Recovery pending'}:{ok:true});}};
+ const control=createVoiceHotkeyController({bridge:{GetVoiceHotkeySettings:async()=>({enabled:true,supported:true,shortcut:'Ctrl+M'}),SetVoiceHotkeyActive:async()=>{}},eventsOn(_,fn){edge=fn;},getSocket:()=>socket,authenticated:()=>true});
+ await control.connection(true);edge({state:'pressed'});await assert.rejects(control.connection(false,{waitForRelease:true}),/Recovery pending/);control.stop();
+});

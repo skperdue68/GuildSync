@@ -1,3 +1,4 @@
+import {createUserSwitches} from './user-switch.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,9 +15,9 @@ test('persistent sessions use current approval and role, and disconnect when rev
   try {
     db.exec(`
       CREATE TABLE guildsync_login_sessions (session_id TEXT, discord_user_id TEXT);
-      CREATE TABLE guildsync_users (discord_user_id TEXT, allowed INTEGER, role TEXT, requested_at TEXT);
+      CREATE TABLE guildsync_users (discord_user_id TEXT, allowed INTEGER, role TEXT, requested_at TEXT, username TEXT, global_name TEXT, guild_member_name TEXT, avatar TEXT, revoked_at TEXT);
       INSERT INTO guildsync_login_sessions VALUES ('session-1', 'user-1');
-      INSERT INTO guildsync_users VALUES ('user-1', 1, 'user', '2020-01-01T00:00:00.000Z');
+      INSERT INTO guildsync_users (discord_user_id,allowed,role,requested_at) VALUES ('user-1', 1, 'user', '2020-01-01T00:00:00.000Z');
     `);
     let disconnected = false;
     const socket = { guildSyncSessionId: 'session-1', disconnect() { disconnected = true; } };
@@ -24,7 +25,7 @@ test('persistent sessions use current approval and role, and disconnect when rev
     const loginDB={ async execute(sql, params) { return [db.prepare(sql).all(...params)]; } },roleViews=createRoleViews(loginDB);
     const verify = vm.runInNewContext(`${verifier}\nverifyGuildSyncSession`, {
       jwt, GUILDSYNC_JWT_SECRET: secret,
-      loginDB,roleViews,roleViewSessionKey,
+      loginDB,roleViews,roleViewSessionKey,userSwitches:createUserSwitches(loginDB),
       io: { sockets: { sockets: new Map([['socket-1', socket]]) } }
     });
     const token = jwt.sign({ sub: 'user-1', jti: 'session-1', role: 'admin' }, secret,
@@ -43,7 +44,7 @@ test('persistent sessions use current approval and role, and disconnect when rev
     assert.equal(disconnected, true);
     db.exec('DELETE FROM guildsync_users');
     await assert.rejects(verify(legacyToken), /Session was logged out/);
-    db.prepare('INSERT INTO guildsync_users VALUES (?, 1, ?, ?)').run('user-1','user',new Date((jwt.decode(legacyToken).iat * 1000) + 1).toISOString());
+    db.prepare('INSERT INTO guildsync_users (discord_user_id,allowed,role,requested_at) VALUES (?, 1, ?, ?)').run('user-1','user',new Date((jwt.decode(legacyToken).iat * 1000) + 1).toISOString());
     await assert.rejects(verify(legacyToken), /Session was logged out/);
   } finally {
     db.close();

@@ -1,0 +1,13 @@
+# Admin user switching
+
+Use server-owned, per-original-login-session state to select an approved effective user. Keep the signed JWT and login-session ownership on the actual administrator. Resolve the selected user on HTTP verification and socket connection; read/write permissions, Discord ranks, note filters and attribution use the effective account. Keep actual_role equal to the selected account role, and carry separate user_switch metadata for the return control only.
+
+Actor validation happens against the current approved Admin database record; target must currently be approved Viewer/User/Admin. Pending/revoked accounts are not selectable. Self selection returns to actor. No target OAuth token is read or issued. Logout clears switch state; fresh login and backend restart start as self. All sockets sharing the original login session switch; separate login sessions do not.
+
+Do not mutate the old socket's identity on a transition. Respond with a fresh effective profile and force old connections closed after ACK/event delivery; new connections authenticate the same actor token and resolve the new target. Client clears caches, invalidates pending callbacks, reconnects and renders selected permissions. Guard all subsequent user packets against actor/session/target revocation. Previously launched handlers keep their old socket identity; late responses are discarded by the client.
+
+Create a startup audit table in the login database recording actor/target, SHA-256 session reference (never JWT), switch/return/revocation events and attempted mutating operations. Retain original account-management self protection. Disable native auto ingestion/mail/voice while switched and guard async continuations. Actor controls bypass selected Viewer permissions only through dedicated currently validated actor-only endpoints.
+
+Hide existing View As User/Viewer menu controls while preserving their implementation/styles and documenting appearance/location. New profile dropdown lists approved accounts and provides Return to my account while switched. Keep a visible selected identity. Native restored-session verification consumes the current server profile before starting background work.
+
+Validation: service authorization/isolation/revocation/audit tests; actual socket guards and role middleware; real note visibility using target roles; HTTP logout and session verification; frontend controls/cache/generation/native gates; Go httptest for effective session; both frontend builds and appropriate regression suites. Production PR and companion Guildsync-General PR, no direct master changes or merging.
