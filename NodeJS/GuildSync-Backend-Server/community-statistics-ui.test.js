@@ -25,19 +25,21 @@ test('highlights handle empty results and escape every server-provided text fiel
  assert.match(html,/1,200/);assert.match(html,/&lt;Alice&gt;/);assert.match(html,/Bob/);assert.match(html,/&lt;note&gt;/);assert.doesNotMatch(html,/<Alice>|<leaders>|<days>|<coverage>|<tie>/);
 });
 
-test('loads only on opening, deduplicates in-flight refresh and replaces only local content preserving scroll',async()=>{
- const listeners={};let resolveRequest,calls=0;
+test('every opening fetches fresh data, deduplicates in-flight refresh and preserves scroll',async()=>{
+ const listeners={};let resolveRequest,calls=0,expanded='false';
  const scroll={scrollTop:287,scrollLeft:3};
  const body={set innerHTML(value){this.html=value;scroll.scrollTop=0;},html:''};
  const status={textContent:''},refresh={disabled:false,addEventListener:(event,fn)=>listeners.refresh=fn};
- const toggle={getAttribute:()=> 'true',addEventListener:(event,fn)=>listeners.open=fn};
+ const toggle={getAttribute:()=>expanded,addEventListener:(event,fn)=>listeners.open=fn};
  const card={querySelector:selector=>selector==='[data-community-toggle]'?toggle:selector==='[data-community-refresh]'?refresh:selector==='[data-community-status]'?status:body,closest:()=>scroll};
  const root={querySelector:()=>card};
- const panel=createCommunityStatisticsPanel({request:()=>{calls++;return new Promise(resolve=>resolveRequest=resolve);}});
- panel.wire(root);assert.equal(calls,0);const pending=listeners.open();listeners.refresh();assert.equal(calls,1);assert.equal(scroll.scrollTop,287);assert.match(status.textContent,/Loading/);
+ const panel=createCommunityStatisticsPanel({request:()=>{calls++;return calls===1?new Promise(resolve=>resolveRequest=resolve):Promise.resolve({ok:true,report:{overview:[{label:'Fresh members',value:calls}],highlights:[]}});}});
+ panel.wire(root);panel.wire(root);assert.equal(calls,0);expanded='true';const pending=listeners.open();listeners.refresh();assert.equal(calls,1);assert.equal(scroll.scrollTop,287);assert.match(status.textContent,/Loading/);
  resolveRequest({ok:true,report:{overview:[{label:'Members',value:2}],highlights:[],notes:['History is partial.']}});await pending;
  assert.equal(scroll.scrollTop,287);assert.equal(scroll.scrollLeft,3);assert.match(body.html,/History is partial/);assert.equal(refresh.disabled,false);
- await listeners.open();assert.equal(calls,1);
+ expanded='false';await listeners.open();assert.equal(calls,1);
+ expanded='true';await listeners.open();assert.equal(calls,2);assert.match(body.html,/Fresh members/);
+ await listeners.refresh();assert.equal(calls,3);assert.equal(scroll.scrollTop,287);
 });
 
 test('failed requests show retryable errors without clearing previously loaded results',async()=>{
@@ -72,4 +74,12 @@ test('logout and account changes discard cached and in-flight statistics',async(
  const pending=panel.load();session='second';panel.render();resolveFirst({ok:true,report:{overview:[{label:'Old account',value:1}],highlights:[],notes:[]}});await pending;
  assert.doesNotMatch(panel.render(),/Old account/);await panel.load();assert.match(panel.render(),/New account/);
  session='';assert.doesNotMatch(panel.render(),/New account/);await panel.load();assert.equal(calls,2);
+});
+
+
+test('returning to an already expanded section refreshes cached results without a click',async()=>{
+ let calls=0;const body={innerHTML:'',setAttribute:()=>{}},status={},refresh={addEventListener:()=>{}},toggle={getAttribute:()=> 'true',addEventListener:()=>{}};
+ const card={querySelector:selector=>selector==='[data-community-toggle]'?toggle:selector==='[data-community-refresh]'?refresh:selector==='[data-community-status]'?status:body,closest:()=>null};
+ const panel=createCommunityStatisticsPanel({request:async()=>({ok:true,report:{overview:[{label:'Fresh count',value:++calls}]}})});
+ await panel.load();assert.equal(calls,1);await panel.wire({querySelector:()=>card});assert.equal(calls,2);assert.match(body.innerHTML,/<dd>2<\/dd>/);
 });
