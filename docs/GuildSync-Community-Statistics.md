@@ -2,9 +2,9 @@
 
 ## Community highlights
 
-Open Reports and Admin, then Community highlights. The section loads on demand and Refresh updates only its results, preserving the page position. All approved Viewer, User, and Admin accounts can read it. No editing or account management privileges are granted by this report.
+Open Reports and Admin, then Community highlights. The section requests fresh data every time it opens, including when returning to Reports and Admin with the section already expanded. Refresh remains available. Updates replace only the section results and preserve the page position; requests already in progress are reused. All approved Viewer, User, and Admin accounts can read it. No editing or account management privileges are granted by this report.
 
-Highlights include the most recorded guild joins and departures (including kicks), Discord joins/departures, longest and newest recorded current guild memberships, Busiest Discord Users (posts plus reactions given), Most Posts, Most Reactions Given, current Bi-Weekly and 50/50 purchased-ticket leaders, and lifetime recorded raffle spending. Community totals show current roster sizes, recorded post/reaction activity, and raffle spending.
+Highlights include longest and newest recorded current guild memberships, Busiest Discord Users (posts plus reactions given), Most Posts, Most Reactions Given, the top five current Bi-Weekly and 50/50 purchased-ticket leaders, and the top five raffle spenders over the last 90 days. Discord activity uses a rolling 30-day window. ESO and Discord join rankings appear at the end. Community totals show current roster sizes, recorded post/reaction activity, and raffle spending.
 
 Colors, other report sections, and the main roster/banking screens are unchanged. The section uses the existing Reports accordion. Cached results and pending requests are discarded when the authenticated session changes.
 
