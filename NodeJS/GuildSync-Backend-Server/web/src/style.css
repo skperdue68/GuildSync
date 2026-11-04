@@ -6868,7 +6868,6 @@ body {
 .configuration-default { justify-self:start; }
 .configuration-setting pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#18212e; color:#f3f5fa; padding:12px; border-radius:6px; font-size:13px; }
 .configuration-actions { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
-.configuration-section-actions { justify-content:flex-end; margin:0; padding-top:14px; border-top:1px solid #3b4a5f; }
 .configuration-status { white-space:pre-wrap; }
 @media (prefers-reduced-motion:reduce) { .report-section-content,.report-section-toggle span { transition:none; } }
 

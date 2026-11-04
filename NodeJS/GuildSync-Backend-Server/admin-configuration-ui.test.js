@@ -69,28 +69,6 @@ test('two-choice settings identify only their default option and omit reset cont
   for(const setting of settings){assert.match(html,new RegExp('id="config-help-'+setting.key+'"'));assert.match(html,new RegExp('aria-describedby="config-help-'+setting.key+'"'));}
  });
 
-test('each settings group repeats save and reload controls so the footer is optional',async t=>{
- const original=globalThis.document;t.after(()=>globalThis.document=original);
- const settings=[
-  {key:'alpha',group:'Alpha',label:'Alpha',type:'boolean',value:false,defaultValue:false,help:'Alpha setting.'},
-  {key:'beta',group:'Beta',label:'Beta',type:'number',value:2,defaultValue:2,help:'Beta setting.'}
- ];
- const handlers={},button={dataset:{configSave:'Alpha'}};
- const input={dataset:{configValue:'alpha'},value:'true',addEventListener:(event,fn)=>handlers['input-'+event]=fn};
- const form={addEventListener:(event,fn)=>handlers['form-'+event]=fn,querySelectorAll:()=>[input]};
- globalThis.document={getElementById:id=>id==='adminConfigurationForm'?form:null,querySelector:()=>null,querySelectorAll:selector=>selector==='[data-config-value]'?[input]:[]};
- const panel=createConfigurationPanel({canEdit:()=>true});let ready;const loaded=new Promise(resolve=>ready=resolve);const requests=[];
- const request=async(event,payload)=>{requests.push({event,payload});return {ok:true,configuration:{revision:1,botDefaultsReported:true,settings}};};
- const wire=()=>panel.wire({request,rerender:()=>ready()});wire();await loaded;wire();
- const html=panel.render();
- assert.equal((html.match(/data-config-save=/g)||[]).length,2);
- assert.equal((html.match(/data-config-reload=/g)||[]).length,2);
- handlers['input-input']();
- await handlers['form-click']({target:{closest:()=>button},preventDefault(){}});
- assert.equal(requests.at(-1).event,'guildsync:save-admin-configuration');
- assert.deepEqual(requests.at(-1).payload.changes,{alpha:'true'});
-});
-
 test('read-only configuration shows effective values and defaults without editing or save controls',async t=>{
  const original=globalThis.document;t.after(()=>globalThis.document=original);globalThis.document={getElementById:()=>null,querySelectorAll:()=>[]};
  const panel=createConfigurationPanel({canEdit:()=>false});let ready;const loaded=new Promise(r=>ready=r);
