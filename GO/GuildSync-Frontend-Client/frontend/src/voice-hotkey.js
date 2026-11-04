@@ -2,6 +2,7 @@ import {createShortcutCapture} from './shortcut-capture.js';
 export function createVoiceHotkeyController({ bridge, eventsOn, getSocket, authenticated, changed = () => {} }) {
   let settings = { enabled: false, shortcut: 'Ctrl+M', supported: false };
   let held = false, sessionId = null, timer = null, capturing = false, message = '', initialized = false;
+  let releasePending=Promise.resolve({ok:true});
   let eligible=false, nativeActive=false, nativeFailed=false, accessTimer=null, accessGeneration=0, accessPending=null;
   const notify = () => changed();
   const request = (state, id, callback) => {
@@ -11,7 +12,16 @@ export function createVoiceHotkeyController({ bridge, eventsOn, getSocket, authe
   function release() {
     clearInterval(timer); timer = null;
     const id = sessionId; sessionId = null;
-    if (id) request('released', id);
+    if (id) {
+      releasePending=new Promise(resolve=>{
+        const socket=getSocket();
+        if(!socket?.connected)return resolve({ok:false,message:'Voice mute cleanup requires a connected server.'});
+        const timeout=setTimeout(()=>resolve({ok:false,message:'Voice mute release was not confirmed. Wait for recovery before switching accounts.'}),16000);
+        timeout.unref?.();
+        request('released',id,response=>{clearTimeout(timeout);resolve(response||{ok:false,message:'Voice mute release was not confirmed.'});});
+      });
+    }
+    return releasePending;
   }
   function edge({ state, message: nativeMessage }) {
     if (state === 'configured') { message = nativeMessage || ''; notify(); return; }
@@ -46,10 +56,10 @@ export function createVoiceHotkeyController({ bridge, eventsOn, getSocket, authe
     try { settings = await bridge.GetVoiceHotkeySettings(); } catch (error) { message = String(error); }
     notify();
   }
-  async function connection(connected) {
+  async function connection(connected,{waitForRelease=false}={}) {
     await initialize();
     clearInterval(accessTimer);accessTimer=null;
-    if (!connected) { accessGeneration++;accessPending=null;eligible=false;nativeFailed=false;release();cancelCapture();await listener(false);notify();return; }
+    if (!connected) { accessGeneration++;accessPending=null;eligible=false;nativeFailed=false;const released=release();cancelCapture();await listener(false);if(waitForRelease){const result=await released;if(!result?.ok)throw Error(result?.message||'Voice mute release was not confirmed.');}notify();return; }
     await refreshAccess();
     if(getSocket()?.connected){accessTimer=setInterval(()=>void refreshAccess(),30000);accessTimer.unref?.();}
   }
