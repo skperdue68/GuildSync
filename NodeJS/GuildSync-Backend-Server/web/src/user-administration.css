@@ -46,3 +46,20 @@
 #userAdminMenuCount { font-size:11px; font-weight:400; }
 .profile-section.profile-user-management-section { margin-top:18px; }
 .profile-test-mode-section .profile-role-view-actions { margin-top:10px; }
+
+/* Match the account selector's native popup to the profile menu theme. */
+#switchGuildSyncAccount {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  background-color: #1e3a8a;
+  border-color: #5582cb;
+  color: #f8fafc;
+  color-scheme: dark;
+  text-align: left;
+}
+#switchGuildSyncAccount:hover { background-color: #24499c; }
+#switchGuildSyncAccount:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+#switchGuildSyncAccount option { background-color: #152b4d; color: #f8fafc; }
+#switchGuildSyncAccount option:checked { background-color: #2563eb; color: #fff; }
