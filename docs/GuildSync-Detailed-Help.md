@@ -268,9 +268,11 @@ Use each component's own `.env`/deployment environment. Restart the owning proce
 | `DISCORD_WEB_REDIRECT_URI` | Optional; `https://guildsync.perdues.me/api/auth/discord/web-callback` | Browser OAuth callback; configure for your public origin and Discord app. |
 | `GUILDSYNC_WEB_PUBLIC_URL` | Optional; `https://guildsync.perdues.me` | Public web origin/download-link base; change for another deployment. |
 | `GUILDSYNC_JWT_SECRET` | Required; secret | Session token signing secret. |
-| `GUILDSYNC_TOKEN_TTL_SECONDS` | Present in example but currently unused | Does not set session lifetime; current JWT signing does not apply this value. Do not rely on it for expiry. |
+| `GUILDSYNC_TOKEN_TTL_SECONDS` | Commented out in the example; unused | Does not set session lifetime; current JWT signing does not apply this value. Do not rely on it for expiry. |
 | `GUILDSYNC_BOT_SOCKET_KEY` | Required; secret | Bot authentication shared key; match bot `GUILDSYNC_BOT_KEY`. |
-| `GUILDSYNC_CLIENT_VERSION` | Required; current example `1.2.7` | Release version offered to clients; matching installer files must exist. |
+| `GUILDSYNC_CLIENT_VERSION` | Optional; stamped by release tooling | Written into `.env` by `tools/update-version.go` during a release. The backend reports the version in `package.json` and ignores this value, logging a warning when the two differ, so do not use it to offer a build. |
+| `GUILDSYNC_MIN_DESKTOP_VERSION` | Optional; blank disables | Minimum desktop client version allowed to connect. Blank or unset disables enforcement; otherwise use a release version such as `1.5.0`. |
+| `GUILDSYNC_DESKTOP_UPDATE_URL` | Optional; GitHub releases page | Fallback download page when no compatible local platform installer is available. Must be an HTTP(S) URL. |
 | `GUILDSYNC_WEB_DIST_DIR` | Optional; backend `public` | Served web bundle directory. |
 | `GUILDSYNC_DOWNLOADS_DIR` | Optional; backend `public/downloads` | Installer ZIP directory. |
 | `MARIADB_HOST` | Optional; `127.0.0.1` | Database host. |
@@ -329,6 +331,8 @@ See the placeholder table above. Node dotenv double-quoted templates can contain
 | `GUILDSYNC_HISTORICAL_SCAN_ON_STARTUP` | Optional; disabled if unset (example `true`) | Enables a bounded startup activity scan when no valid completion exists or last completion is at least seven days old; not a periodic timer. |
 | `GUILDSYNC_HISTORICAL_SCAN_MESSAGE_LIMIT_PER_CHANNEL` | Optional; `1000` | Upper bound of historical messages checked per text/announcement channel. |
 | `ESO_GUILD_APPLICATIONS` | Conditional for application posting | `DiscordGuildID:ExistingThreadID`; destination must be a thread. |
+| `GUILDSYNC_APPLICATION_RESTORE_RANK_ENABLED` | Optional; `true` | Restores a returning member's previous guild rank when an accepted application is announced. `false` keeps ordinary application posts without automatic rank restoration. |
+| `GUILDSYNC_APPLICATION_OFFICER_ROLE` | Optional; `Consigliere` | Officer role name or numeric role ID, without `@`, used when restoring a returning member's rank. Defaults to Consigliere; aliases such as Consiglieri are recognized. |
 
 Enable the Discord privileged **Server Members Intent** for membership synchronization. Give destination permissions appropriate to each optional feature. `/roles` and the bot's startup/live events keep role records current; adding Gangsters needs no whitelist modification.
 
@@ -336,6 +340,8 @@ Enable the Discord privileged **Server Members Intent** for membership synchroni
 
 | Setting | Status / default | Purpose |
 | --- | --- | --- |
+| `GUILDSYNC_RAFFLE_ANNOUNCEMENTS_ENABLED` | Optional; `true` | Master switch for regular, milestone, and deadline raffle reminders. A destination must still be configured, and `/raffle` is unaffected. |
+| `GUILDSYNC_RAFFLE_ARCHIVE_ANNOUNCEMENTS_ENABLED` | Optional; `true` | Master switch for archive completion notifications. Enabling or disabling archiving itself is separate. |
 | `GUILDSYNC_RAFFLE_CHANNEL_ID` | Optional; blank disables | Channel for regular, milestone, and deadline raffle announcements; does not disable `/raffle`. |
 | `GUILDSYNC_RAFFLE_INTERVAL_HOURS` | Optional; `48` | Regular summary interval after a successful combined post. |
 | `GUILDSYNC_RAFFLE_BONUS_REMINDER_HOURS` | Optional; `1` | Positive lead hours before bonus tier changes/expiration; comma-separated values allow several reminders. |
@@ -367,6 +373,18 @@ Each destination needs View Channel, Send Messages, and Read Message History in 
 | `GUILDSYNC_ONBOARDING_REMINDER_MESSAGE` | Optional; blank uses built-in | Editable unlinked/name-matching reminder template. |
 
 Onboarding booleans must be `true` or `false`; IDs must be numeric. Invalid settings stop this worker and log the reason without stopping unrelated bot features. Use the [onboarding guide](../NodeJS/GuildSync-Discord-Bot/MEMBER-ONBOARDING.md) to configure templates and permissions. Restart bot after edits. No slash registration is needed just to change onboarding settings.
+
+### Discord bot: voice channel hotkey mute
+
+The desktop client provides the hold-to-mute shortcut; the bot only applies mutes for requesters it authorizes. The bot needs **Manage Roles**, with its highest role above every role it may mute. Approved GuildSync Viewer, User, or Admin access, or a standalone Discord voice login, is required.
+
+| Setting | Status / default | Purpose |
+| --- | --- | --- |
+| `GUILDSYNC_VOICE_MUTE_ENABLED` | Optional; `false` | Opt-in hold-to-mute for allowed requesters in their current voice channel. Turning it off ends temporary sessions; confirmed moderator mutes remain. |
+| `GUILDSYNC_VOICE_MUTE_ALLOWED_ROLE_IDS` | Optional; blank authorizes nobody | Comma-separated role names (case insensitive, no `@`) or numeric IDs allowed to request a mute, for example `Kingpin, Consigliere`. |
+| `GUILDSYNC_VOICE_MUTE_RANK_ROLE_IDS` | Optional; blank discovers by name | Guild rank roles from lowest to highest, as names or IDs. Equal, higher, and unknown ranks are never muted; decorative roles are ignored. |
+
+The same three settings appear under **Voice channel mute** in [Administrator Configuration](GuildSync-Admin-Configuration.md) and can be changed live there. Turning the feature off does not lift a confirmed moderator mute.
 
 ### Desktop: optional local overrides
 
