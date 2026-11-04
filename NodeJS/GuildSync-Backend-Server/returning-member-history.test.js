@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {getReturningMemberHistory} from './returning-member-history.js';
-test('accepted application uses exact ESO account and latest promotion before acceptance',async()=>{
+test('accepted application uses exact ESO account and latest rank change before acceptance',async()=>{
  const calls=[];
  const db={execute:async(sql,args)=>{calls.push([sql,args]);return sql.includes('guildsync_roster_events')?[[{rank_name:'Soldier',event_timestamp:'100'}]]:[[{discord_user_id:'123'}]];}};
  const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:'200',submitted_by_discord_id:'777'});
  assert.equal(result.rankName,'Soldier');assert.deepEqual(result.discordUserIds,['123']);
  assert.equal(result.actorDiscordId,'777');
- assert.match(calls[0][0],/event_type = 'promoted'/);assert.match(calls[0][0],/ORDER BY CAST\(event_timestamp AS UNSIGNED\) DESC/);
+ assert.match(calls[0][0],/event_type IN \('promoted', 'demoted'\)/);assert.match(calls[0][0],/ORDER BY CAST\(event_timestamp AS UNSIGNED\) DESC/);
  assert.match(calls[0][0],/LIMIT 1/);assert.doesNotMatch(calls[0][0],/LIKE/);
  assert.deepEqual(calls[0][1],['Alice',200]);
 });
@@ -33,3 +33,22 @@ test('declined applications, first-time members, and missing dates do not restor
  assert.equal(await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice',application_timestamp:200}),null);
  assert.equal(queries,1);
 });
+
+for (const latestType of ['demoted','promoted']) {
+ test(`latest ESO ${latestType} rank supersedes an earlier rank change`,async()=>{
+  const events=[
+   {account:'alice',event_type:latestType==='demoted'?'promoted':'demoted',rank_name:'Capo',event_timestamp:100},
+   {account:'alice',event_type:latestType,rank_name:'Soldier',event_timestamp:150},
+   {account:'alice',event_type:'promoted',rank_name:'Kingpin',event_timestamp:250},
+   {account:'someoneelse',event_type:'promoted',rank_name:'Kingpin',event_timestamp:190}
+  ];
+  const db={execute:async(sql,args)=>{
+   if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
+   const types=[...sql.matchAll(/'(promoted|demoted)'/g)].map(match=>match[1]);
+   return [events.filter(event=>event.account===args[0].toLowerCase() && event.event_timestamp<=args[1] && types.includes(event.event_type))
+    .sort((a,b)=>b.event_timestamp-a.event_timestamp).slice(0,1)];
+  }};
+  const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:200});
+  assert.equal(result.rankName,'Soldier');
+ });
+}

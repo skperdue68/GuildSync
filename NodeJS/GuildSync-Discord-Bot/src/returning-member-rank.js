@@ -53,7 +53,7 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
     const current=[...member.roles.cache.values()],highest=current.reduce((best,role)=>rankOf(role)>rankOf(best)?role:best,target);
     const effective=rankOf(highest)>desiredRank?highest:target;
     const alreadyHadTarget=member.roles.cache.has(target.id);
-    if(effective.id===target.id && !alreadyHadTarget)await member.roles.add(target.id,'GuildSync returning member: latest recorded ESO promotion');
+    if(effective.id===target.id && !alreadyHadTarget)await member.roles.add(target.id,'GuildSync returning member: latest recorded ESO rank change');
     const lower=current.filter(role=>rankOf(role)>=0 && rankOf(role)<rankOf(effective));
     let cleanup='';
     if(lower.length) {
