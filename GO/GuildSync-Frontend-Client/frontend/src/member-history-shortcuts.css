@@ -13,7 +13,7 @@
  .member-history-table.eso-roster-table th:nth-child(4) { width:48px; padding:10px 4px; }
  .member-history-table.eso-roster-table th:last-child { width:calc(30% - 104px); }
 }
-@media (max-width:760px), (pointer:coarse) and (max-width:920px) {
+@media (max-width:760px), (pointer:coarse) {
  .member-history-table:not(.eso-roster-table) td:nth-child(5)::before { content:"History"; }
  .member-history-table:not(.eso-roster-table) td:nth-child(6)::before { content:"Linked"; }
  .member-history-table.eso-roster-table td:nth-child(4)::before { content:"Notes"; }
