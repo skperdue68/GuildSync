@@ -9818,6 +9818,11 @@ function handleGuildSyncSavedVarsFileModified(payload = {}) {
     logGuildSyncFileWatcher(`Processing applications SavedVariables update from ${fileName}.`);
     handleGuildSyncApplicationsSavedVarsModified(payload);
   }
+
+  if (normalizedKey === 'itemshare') {
+    // Change detection only for now: Item Share data is not collected or uploaded.
+    logGuildSyncFileWatcher(`Detected Item Share SavedVariables update from ${fileName}. No upload handler is configured yet.`, payload);
+  }
 }
 
 async function handleGuildSyncBankingSavedVarsModified(payload = {}) {

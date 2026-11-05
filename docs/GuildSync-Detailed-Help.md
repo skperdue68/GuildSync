@@ -119,8 +119,9 @@ Saved files:
 | Banking | `GuildSyncBanking.lua` | `GuildSyncBankingState.lua` |
 | Roster | `GuildSyncRoster.lua` | `GuildSyncRosterState.lua` |
 | Applications | `GuildSyncApplications.lua` | Application settings/records in its SavedVariables |
+| Item Share | `ItemShareSavedVariables.lua` | Not tracked by GuildSync |
 
-Desktop watchers monitor the three export files, not the two stream-state files. Profile switches persist in the OS configuration directory under `GuildSync/file-watch-settings.json`; all three watchers default enabled. Authenticated sessions start watchers and logout stops them. Before export cleanup or mail-queue writes, backups go to `SavedVariables/GuildSyncBackups/<addon>/<filename>.backup-<timestamp>`.
+Desktop watchers monitor the four export files, not the two stream-state files. Profile switches persist in the OS configuration directory under `GuildSync/file-watch-settings.json`; all four watchers default enabled. The Item Share watcher only detects changes today; it does not collect or upload anything. Authenticated sessions start watchers and logout stops them. Before export cleanup or mail-queue writes, backups go to `SavedVariables/GuildSyncBackups/<addon>/<filename>.backup-<timestamp>`.
 
 ## Banking, spreadsheets, archives, and updates
 
@@ -396,6 +397,7 @@ Desktop files load in order: executable-directory `.env`, executable-directory `
 | `SAVED_VARS_BANKING_FILE_NAME` | Optional; `GuildSyncBanking.lua` | Banking export filename. |
 | `SAVED_VARS_ROSTER_FILE_NAME` | Optional; `GuildSyncRoster.lua` | Roster export filename. |
 | `SAVED_VARS_APPLICATIONS_FILE_NAME` | Optional; `GuildSyncApplications.lua` | Application export filename. |
+| `SAVED_VARS_ITEMSHARE_FILE_NAME` | Optional; `ItemShareSavedVariables.lua` | Item Share SavedVariables filename; watched for change detection only. |
 | `SAVED_VARS_BANKING_TABLE_NAME` | Optional; `GuildSyncBanking` | Top-level banking Lua table name for parsing. |
 | `SAVED_VARS_ROSTER_TABLE_NAME` | Optional; `GuildSyncRoster` | Top-level roster Lua table name for parsing. |
 | `SAVED_VARS_APPLICATIONS_TABLE_NAME` | Optional; `GuildSyncApplications` | Top-level application Lua table name for parsing. |
@@ -404,7 +406,7 @@ Desktop files load in order: executable-directory `.env`, executable-directory `
 | `GUILDSYNC_AUTH_SERVER_URL` | Optional; packaged deployment URL | Backend authentication origin. |
 | `GUILDSYNC_SOCKET_URL` | Optional; packaged deployment URL | Backend Socket.IO origin. |
 
-The profile's three watcher switches are saved application preferences, not `.env` flags. In-game debug settings and welcome templates are ESO SavedVariables settings, also not server `.env` flags.
+The profile's four watcher switches are saved application preferences, not `.env` flags. In-game debug settings and welcome templates are ESO SavedVariables settings, also not server `.env` flags.
 
 ## Deployment and troubleshooting
 

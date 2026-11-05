@@ -203,6 +203,13 @@ func getSavedVarsWatchFiles() []GuildSyncSavedVarsWatchFile {
 			Label:    "Applications",
 			FileName: getSavedVarsFileNameFromEnv("SAVED_VARS_APPLICATIONS_FILE_NAME", "GuildSyncApplications.lua"),
 		},
+		// Item Share is watched for change detection only. It has no upload
+		// handler yet, so a detected change is logged without collecting data.
+		{
+			Key:      "itemshare",
+			Label:    "Item Share",
+			FileName: getSavedVarsFileNameFromEnv("SAVED_VARS_ITEMSHARE_FILE_NAME", "ItemShareSavedVariables.lua"),
+		},
 	}
 
 	settings := loadFileWatchSettings()
