@@ -18,14 +18,17 @@ test('restores singular historical rank, removes lower guild ranks, retains deco
  const g=guild({existing:['1','2','7']});
  const result=await restoreReturningMemberRank(g,{applicantAccount:'@Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:['100']}});
  assert.deepEqual(g.calls,[['add','3'],['remove',['1','2']]]);
- assert.match(result.notice,/returning member/i);assert.match(result.notice,/Soldiers/);assert.match(result.notice,/ESO/);
+ assert.match(result.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
+ assert.match(result.notice,/promoted automatically to/);
+ assert.match(result.notice,/Soldiers/);
  assert.deepEqual(result.roleMentions,['5']);assert.ok(g.member.roles.cache.has('7'));
 });
 test('never downgrades a higher current rank and repeats are idempotent',async()=>{
  const g=guild({existing:['1','4']});const data={applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:['100']}};
  const first=await restoreReturningMemberRank(g,data);await restoreReturningMemberRank(g,data);
  assert.deepEqual(g.calls,[['remove',['1']]]);assert.match(first.notice,/Capo/);
- assert.match(first.notice,/verify which rank they should hold in ESO/);
+ assert.match(first.notice,/already holds a higher rank/);
+ assert.match(first.notice,/should be promoted in game/);
  assert.doesNotMatch(first.notice,/must also promote/);
 });
 test('ambiguous exact-name matches never grant roles; permission failures do not claim restoration',async()=>{
@@ -82,8 +85,8 @@ test('already-held Soldier rank is named and asks officers to verify ESO rather 
  const g=guild({existing:['3']});
  const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:['100']}});
  assert.equal(g.calls.length,0);
- assert.match(result.notice,/currently holds Discord rank.*Soldiers/);
- assert.match(result.notice,/verify which rank they should hold in ESO/);
+ assert.match(result.notice,/already held the correct rank \*\*Soldiers\*\*/);
+ assert.match(result.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
  assert.doesNotMatch(result.notice,/must also promote/);
  assert.deepEqual(result.roleMentions,['5']);
 });
@@ -92,17 +95,17 @@ test('a failed Discord lookup still names the recorded rank and the ESO promotio
  const g=guild({names:['Alice','Alice']});
  const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:[]}});
  assert.equal(g.calls.length,0);
- assert.match(result.notice,/held rank \*\*Soldier\*\* previously and needs to be promoted in ESO/);
- assert.match(result.notice,/no unique matching Discord member/);
+ assert.match(result.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
+ assert.match(result.notice,/A Discord account could not be identified/);
 });
 
 test('missing rank roles and unlinked members keep the rank name in the notice',async()=>{
  const missing=guild();
  missing.roles.fetch=async()=>new Map();
  const noRole=await restoreReturningMemberRank(missing,{applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:['100']}});
- assert.match(noRole.notice,/held rank \*\*Soldier\*\* previously and needs to be promoted in ESO/);
+ assert.match(noRole.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
  const linked=guild({names:['Bob']});
  const noMember=await restoreReturningMemberRank(linked,{applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:[]}});
- assert.match(noMember.notice,/held rank \*\*Soldier\*\* previously and needs to be promoted in ESO/);
+ assert.match(noMember.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
  assert.match(noMember.notice,/review the Discord link/);
 });
