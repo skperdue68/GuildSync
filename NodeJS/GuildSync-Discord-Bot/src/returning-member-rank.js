@@ -20,9 +20,10 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
   const officers=all.filter(role=>String(role.id)===officerRef || canonical(role.name)===canonical(officerRef));
   const officer=officers.length===1?officers[0]:null;
   const mention=officer?`<@&${officer.id}>`:'Consigliere (role could not be resolved)';
-  const result=notice=>({notice:`**Returning member:** ${notice} ${mention}`,roleMentions:officer?[officer.id]:[]});
-  // Every notice opens with the rank we already know about so officers do not
-  // have to look it up, then says what happened on the Discord side.
+  const applicant=safe(payload.applicantAccount)||'This member';
+  const result=notice=>({notice:`**Returning member:** ${applicant} ${notice} ${mention}`,roleMentions:officer?[officer.id]:[]});
+  // Every notice opens with the applicant and the rank we already know about so
+  // officers do not have to look either up, then says what happened on Discord.
   const recordedRank=safe(historical.rankName);
   const promotion=recordedRank?`held AM Rank **${recordedRank}** and should be promoted in game. `:'has no recorded AM rank; an officer should confirm the in-game rank. ';
   const refs=String(rankRefs||'').split(',').map(v=>v.trim()).filter(Boolean);
@@ -66,7 +67,7 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
     }
     const retained=effective.id!==target.id;
     log(`Returning member ${payload.applicantAccount}: Discord ${member.id}, historical ${historical.rankName}, effective ${effective.name}.`);
-    return result(`${safe(payload.applicantAccount)} ${promotion}${retained?'Their Discord account already holds a higher rank':alreadyHadTarget?'Their Discord account already held the correct rank':'Their Discord account was promoted automatically to'} **${safe(effective.name)}**.${cleanup}`);
+    return result(`${promotion}${retained?'Their Discord account already holds a higher rank':alreadyHadTarget?'Their Discord account already held the correct rank':'Their Discord account was promoted automatically to'} **${safe(effective.name)}**.${cleanup}`);
   } catch(error) {
     log(`Returning member rank restoration failed for ${payload.applicantAccount}: ${error.message}`);
     return result(`${promotion}Their Discord rank could not be restored automatically. Please check bot permissions/account linking.`);

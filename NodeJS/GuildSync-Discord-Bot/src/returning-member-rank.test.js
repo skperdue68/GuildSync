@@ -95,7 +95,7 @@ test('a failed Discord lookup still names the recorded rank and the ESO promotio
  const g=guild({names:['Alice','Alice']});
  const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{actorDiscordId:'999',rankName:'Soldier',discordUserIds:[]}});
  assert.equal(g.calls.length,0);
- assert.match(result.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
+ assert.match(result.notice,/Returning member:\*\* Alice held AM Rank \*\*Soldier\*\* and should be promoted in game/);
  assert.match(result.notice,/A Discord account could not be identified/);
 });
 
