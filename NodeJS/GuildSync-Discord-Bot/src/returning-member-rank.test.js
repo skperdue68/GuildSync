@@ -109,3 +109,50 @@ test('missing rank roles and unlinked members keep the rank name in the notice',
  assert.match(noMember.notice,/held AM Rank \*\*Soldier\*\* and should be promoted in game/);
  assert.match(noMember.notice,/review the Discord link/);
 });
+
+test('no ESO rank on record falls back to the highest Discord rank and advises the promotion',async()=>{
+ const g=guild({existing:['1','3']});
+ const result=await restoreReturningMemberRank(g,{applicantAccount:'@adhesivelemon',returningMember:{rankName:'',discordUserIds:['100']}});
+ assert.equal(g.calls.length,0);
+ assert.match(result.notice,/Returning member:\*\* adhesivelemon has no ESO rank on record, but holds \*\*Soldiers\*\* in Discord and should be promoted in game to match/);
+ assert.deepEqual(result.roleMentions,['5']);
+ for (const unknown of ['Unknown',' unknown ']) {
+  const again=await restoreReturningMemberRank(g,{applicantAccount:'adhesivelemon',returningMember:{rankName:unknown,discordUserIds:['100']}});
+  assert.match(again.notice,/has no ESO rank on record, but holds \*\*Soldiers\*\*/,unknown);
+ }
+});
+
+test('an equivalent Discord rank and ESO roster rank need no promotion advice',async()=>{
+ const g=guild({existing:['2']});
+ const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{rankName:'',rosterRank:'Associate',discordUserIds:['100']}});
+ assert.equal(g.calls.length,0);
+ assert.match(result.notice,/has no ESO rank change on record, and their Discord \*\*Associates\*\* already matches their \*\*Associate\*\* ESO rank, so no in-game promotion is needed/);
+ assert.doesNotMatch(result.notice,/should be promoted in game/);
+ assert.deepEqual(result.roleMentions,['5']);
+});
+
+test('a Discord rank above the ESO roster rank is still advised, one below is not',async()=>{
+ const above=guild({existing:['3']});
+ const higher=await restoreReturningMemberRank(above,{applicantAccount:'Alice',returningMember:{rankName:'',rosterRank:'Associate',discordUserIds:['100']}});
+ assert.match(higher.notice,/holds \*\*Soldiers\*\* in Discord and should be promoted in game to match/);
+ assert.equal(above.calls.length,0);
+ const below=guild({existing:['2']});
+ const lower=await restoreReturningMemberRank(below,{applicantAccount:'Alice',returningMember:{rankName:'',rosterRank:'Soldier',discordUserIds:['100']}});
+ assert.match(lower.notice,/their \*\*Soldier\*\* ESO rank is already above their Discord \*\*Associates\*\*, so no in-game promotion is needed/);
+ assert.doesNotMatch(lower.notice,/should be promoted in game/);
+ assert.equal(below.calls.length,0);
+});
+
+test('no ESO rank stays a request for confirmation when the Discord rank is the entry rank, missing or unlinked',async()=>{
+ const entry=guild({existing:['1']});
+ const onlyEntry=await restoreReturningMemberRank(entry,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:['100']}});
+ assert.match(onlyEntry.notice,/has no ESO rank on record and holds only \*\*Gangsters\*\*/);
+ const plain=guild({existing:['7']});
+ const noRankRole=await restoreReturningMemberRank(plain,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:['100']}});
+ assert.match(noRankRole.notice,/holds no guild rank role in Discord/);
+ const unlinked=guild({names:['Bob']});
+ const missing=await restoreReturningMemberRank(unlinked,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:[]}});
+ assert.match(missing.notice,/no unique linked Discord account could be identified/);
+ const many=await restoreReturningMemberRank(entry,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:['100','101']}});
+ assert.match(many.notice,/more than one confirmed account link exists/);
+});
