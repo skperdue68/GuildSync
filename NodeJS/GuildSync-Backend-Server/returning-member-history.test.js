@@ -31,7 +31,8 @@ test('declined applications, first-time members, and missing dates do not restor
  assert.equal(await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice'}),null);
  assert.equal(queries,0);
  assert.equal(await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice',application_timestamp:200}),null);
- assert.equal(queries,1);
+ // rank change lookup, then the older roster-activity fallback
+ assert.equal(queries,2);
 });
 
 for (const latestType of ['demoted','promoted']) {
@@ -52,3 +53,26 @@ for (const latestType of ['demoted','promoted']) {
   assert.equal(result.rankName,'Soldier');
  });
 }
+
+test('roster history without a rank change still returns the link so Discord rank can be reported',async()=>{
+ const statements=[];
+ const db={execute:async(sql,args)=>{
+  statements.push(sql);
+  if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
+  if(sql.includes("event_type IN ('promoted', 'demoted')"))return [[]];
+  return [[{rank_name:'',event_timestamp:'150'}]];
+ }};
+ const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:'200'});
+ assert.equal(result.rankName,'');
+ assert.equal(result.rankTimestamp,150);
+ assert.deepEqual(result.discordUserIds,['123']);
+ assert.doesNotMatch(statements[1],/event_type/);
+});
+
+test('a blank or Unknown rank survives as no rank rather than an unusable label',async()=>{
+ for (const stored of ['', 'Unknown', ' unknown ']) {
+  const db={execute:async sql=>sql.includes('guildsync_roster_events')?[[{rank_name:stored,event_timestamp:'100'}]]:[[{discord_user_id:'123'}]]};
+  const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice',application_timestamp:'200'});
+  assert.equal(result.rankName,'',stored);
+ }
+});

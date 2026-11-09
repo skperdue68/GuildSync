@@ -24,15 +24,41 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
   const result=notice=>({notice:`**Returning member:** ${applicant} ${notice} ${mention}`,roleMentions:officer?[officer.id]:[]});
   // Every notice opens with the applicant and the rank we already know about so
   // officers do not have to look either up, then says what happened on Discord.
-  const recordedRank=safe(historical.rankName);
-  const promotion=recordedRank?`held AM Rank **${recordedRank}** and should be promoted in game. `:'has no recorded AM rank; an officer should confirm the in-game rank. ';
+  const rawRank=safe(historical.rankName);
+  // A stored rank of "Unknown" carries no more information than a missing one.
+  const recordedRank=/^unknown$/i.test(rawRank.trim())?'':rawRank;
+  const promotion=`held AM Rank **${recordedRank}** and should be promoted in game. `;
   const refs=String(rankRefs||'').split(',').map(v=>v.trim()).filter(Boolean);
   const rankOf=role=>refs.length?refs.findIndex(ref=>/^\d+$/.test(ref)?String(role.id)===ref:canonical(role.name)===canonical(ref))
     :aliases.findIndex(group=>group.includes(normalized(role.name)));
-  const targets=all.filter(role=>canonical(role.name)===canonical(historical.rankName) && rankOf(role)>=0);
-  if(targets.length!==1)return result(`${promotion}Their Discord rank could not be updated because the Discord rank role is missing or ambiguous. Please review the Discord rank roles.`);
-  const target=targets[0],desiredRank=rankOf(target);
+  const targets=recordedRank?all.filter(role=>canonical(role.name)===canonical(recordedRank) && rankOf(role)>=0):[];
+  const linked=[...new Set(historical.discordUserIds||[])];
+  const resolveMember=async()=>{
+    if(linked.length>1)return {reason:'multipleLinks'};
+    if(linked.length===1)return {member:await guild.members.fetch({user:linked[0],force:true})};
+    const members=await guild.members.fetch();
+    const matches=[...members.values()].filter(candidate=>!candidate.user?.bot &&
+      [candidate.user?.username,candidate.user?.globalName,candidate.nickname,candidate.displayName].some(name=>name && account(name)===account(payload.applicantAccount)));
+    return matches.length===1?{member:matches[0]}:{reason:'noMatch'};
+  };
   try {
+    if(!recordedRank) {
+      // ESO is the source of authority, so with no rank on record there is nothing to
+      // restore. A linked member's Discord rank is the only evidence left, and it is
+      // reported as advice because GuildSync cannot write ranks into ESO.
+      const {member,reason}=await resolveMember();
+      if(reason==='multipleLinks')return result('has no ESO rank on record, and more than one confirmed account link exists. Please review the links and confirm the in-game rank.');
+      if(!member || member.user?.bot)return result('has no ESO rank on record, and no unique linked Discord account could be identified. An officer should confirm the in-game rank.');
+      const held=[...member.roles.cache.values()].filter(role=>rankOf(role)>=0);
+      if(!held.length)return result('has no ESO rank on record and holds no guild rank role in Discord. An officer should confirm the in-game rank.');
+      const highest=held.reduce((best,role)=>rankOf(role)>rankOf(best)?role:best);
+      const entry=Math.min(...all.map(rankOf).filter(index=>index>=0));
+      if(rankOf(highest)<=entry)return result(`has no ESO rank on record and holds only **${safe(highest.name)}** in Discord. An officer should confirm the in-game rank.`);
+      log(`Returning member ${payload.applicantAccount}: no ESO rank on record; Discord ${member.id} holds ${highest.name}.`);
+      return result(`has no ESO rank on record, but holds **${safe(highest.name)}** in Discord and should be promoted in game to match.`);
+    }
+    if(targets.length!==1)return result(`${promotion}Their Discord rank could not be updated because the Discord rank role is missing or ambiguous. Please review the Discord rank roles.`);
+    const target=targets[0],desiredRank=rankOf(target);
     if(!officer || !/^\d{1,32}$/.test(String(historical.actorDiscordId||''))) {
       return result(`${promotion}Their Discord rank was not restored automatically because a verified officer uploader is required.`);
     }
@@ -43,17 +69,9 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
       return result(`${promotion}Their Discord rank was not restored automatically because the application uploader does not currently have officer rank.`);
     }
     if(desiredRank>actorRank)return result(`${promotion}Their Discord rank was not restored automatically because the recorded rank is above the uploader's current guild rank. A higher-ranked officer must review it.`);
-    let member;
-    const ids=[...new Set(historical.discordUserIds||[])];
-    if(ids.length>1)return result(`${promotion}Their Discord rank was not restored automatically because more than one confirmed account link exists. Please review the links.`);
-    if(ids.length===1)member=await guild.members.fetch({user:ids[0],force:true});
-    else {
-      const members=await guild.members.fetch();
-      const matches=[...members.values()].filter(candidate=>!candidate.user?.bot &&
-        [candidate.user?.username,candidate.user?.globalName,candidate.nickname,candidate.displayName].some(name=>name && account(name)===account(payload.applicantAccount)));
-      if(matches.length!==1)return result(`${promotion}A Discord account could not be identified for automatic promotion because no unique matching Discord member was found. Please review the Discord link.`);
-      member=matches[0];
-    }
+    const {member,reason}=await resolveMember();
+    if(reason==='multipleLinks')return result(`${promotion}Their Discord rank was not restored automatically because more than one confirmed account link exists. Please review the links.`);
+    if(reason==='noMatch')return result(`${promotion}A Discord account could not be identified for automatic promotion because no unique matching Discord member was found. Please review the Discord link.`);
     if(!member || member.user?.bot)return result(`${promotion}A Discord account could not be identified for automatic promotion. Please review the Discord link.`);
     const current=[...member.roles.cache.values()],highest=current.reduce((best,role)=>rankOf(role)>rankOf(best)?role:best,target);
     const effective=rankOf(highest)>desiredRank?highest:target;
