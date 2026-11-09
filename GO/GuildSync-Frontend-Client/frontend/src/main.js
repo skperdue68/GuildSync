@@ -55,7 +55,7 @@ import {
 
 import { BrowserOpenURL, EventsOn } from '../wailsjs/runtime/runtime';
 
-const GUILDSYNC_APP_VERSION = '1.5.0';
+const GUILDSYNC_APP_VERSION = '1.5.1';
 const VERSION_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const PENDING_BANKING_UPLOADS_STORAGE_KEY = 'guildsync-pending-banking-uploads';
 const PENDING_DEPOSIT_MAIL_STORAGE_KEY = 'guildsync-pending-deposit-mail';
