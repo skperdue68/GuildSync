@@ -17,9 +17,18 @@ export async function getReturningMemberHistory(db,record) {
     ORDER BY CAST(event_timestamp AS UNSIGNED) DESC,CAST(event_id AS UNSIGNED) DESC,event_id DESC LIMIT 1`,[account,acceptedAt]);
   const latest=history[0]||earlier[0];
   if(!latest)return null;
+  const rankName=cleanRank(latest.rank_name);
+  // The roster side can still know the rank when the event history does not, so the bot
+  // can tell an equivalent Discord rank from a genuine in-game promotion.
+  let rosterRank='';
+  if(!rankName) {
+    const [rosterRows]=await db.execute(`SELECT rank_name FROM guildsync_roster_rank_history
+      WHERE LOWER(TRIM(LEADING '@' FROM account_name)) = LOWER(?) LIMIT 1`,[account]);
+    rosterRank=cleanRank(rosterRows[0]?.rank_name);
+  }
   const [links]=await db.execute(`SELECT DISTINCT discord_user_id FROM guildsync_member_links
     WHERE LOWER(TRIM(LEADING '@' FROM eso_account_name)) = LOWER(?) AND link_status = 'linked'`,[account]);
   return {actorDiscordId:/^\d{1,32}$/.test(String(record.submitted_by_discord_id||''))?String(record.submitted_by_discord_id):null,
-    rankName:cleanRank(latest.rank_name),rankTimestamp:Number(latest.event_timestamp),
+    rankName,rosterRank,rankTimestamp:Number(latest.event_timestamp),
     discordUserIds:links.map(link=>String(link.discord_user_id)).filter(id=>/^\d+$/.test(id))};
 }

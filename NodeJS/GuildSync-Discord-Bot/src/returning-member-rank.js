@@ -52,6 +52,15 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
       const held=[...member.roles.cache.values()].filter(role=>rankOf(role)>=0);
       if(!held.length)return result('has no ESO rank on record and holds no guild rank role in Discord. An officer should confirm the in-game rank.');
       const highest=held.reduce((best,role)=>rankOf(role)>rankOf(best)?role:best);
+      // The ESO roster keeps the rank after someone leaves. When the Discord rank is the
+      // same rank, the member is already equivalent and no promotion is needed.
+      const esoSide=safe(historical.rosterRank).trim(),esoSideRank=esoSide?rankOf({id:'',name:esoSide}):-1;
+      if(esoSide && canonical(esoSide)===canonical(highest.name)) {
+        log(`Returning member ${payload.applicantAccount}: Discord ${member.id} holds ${highest.name}, equivalent to ESO ${esoSide}; no promotion advised.`);
+        return result(`has no ESO rank change on record, and their Discord **${safe(highest.name)}** already matches their **${esoSide}** ESO rank, so no in-game promotion is needed.`);
+      }
+      if(esoSide && esoSideRank>=0 && rankOf(highest)<esoSideRank)
+        return result(`has no ESO rank change on record, and their **${esoSide}** ESO rank is already above their Discord **${safe(highest.name)}**, so no in-game promotion is needed.`);
       const entry=Math.min(...all.map(rankOf).filter(index=>index>=0));
       if(rankOf(highest)<=entry)return result(`has no ESO rank on record and holds only **${safe(highest.name)}** in Discord. An officer should confirm the in-game rank.`);
       log(`Returning member ${payload.applicantAccount}: no ESO rank on record; Discord ${member.id} holds ${highest.name}.`);
