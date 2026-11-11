@@ -60,14 +60,15 @@ test('roster history without a rank change still returns the link so Discord ran
   statements.push(sql);
   if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
   if(sql.includes("event_type IN ('promoted', 'demoted')"))return [[]];
-  return [[{rank_name:'',event_timestamp:'150'}]];
+  return [[{rank_name:'',event_timestamp:'150',event_type:'joined'},{rank_name:'',event_timestamp:'90',event_type:'promoted'}]];
  }};
  const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:'200'});
  assert.equal(result.rankName,'');
  assert.equal(result.rosterRank,'');
  assert.equal(result.rankTimestamp,150);
  assert.deepEqual(result.discordUserIds,['123']);
- assert.doesNotMatch(statements[1],/event_type/);
+ assert.match(statements[1],/SELECT rank_name,event_timestamp,event_type/);
+ assert.doesNotMatch(statements[1],/event_type (IN|=)/i);
 });
 
 test('the roster-side rank is reported when the event history has no rank',async()=>{
@@ -77,7 +78,7 @@ test('the roster-side rank is reported when the event history has no rank',async
   if(sql.includes('guildsync_roster_rank_history'))return [[{rank_name:'Associate'}]];
   if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
   if(sql.includes("event_type IN ('promoted', 'demoted')"))return [[]];
-  return [[{rank_name:'',event_timestamp:'150'}]];
+  return [[{rank_name:'',event_timestamp:'150',event_type:'joined'},{rank_name:'',event_timestamp:'90',event_type:'demoted'}]];
  }};
  const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:'200'});
  assert.equal(result.rankName,'');assert.equal(result.rosterRank,'Associate');
@@ -91,4 +92,38 @@ test('a blank or Unknown rank survives as no rank rather than an unusable label'
   const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice',application_timestamp:'200'});
   assert.equal(result.rankName,'',stored);
  }
+});
+
+test('a single first-ever join is a new member, not a returning one',async()=>{
+ const statements=[];
+ const db={execute:async(sql,args)=>{
+  statements.push([sql,args]);
+  if(!sql.includes('guildsync_roster_events'))throw Error('a new member must not trigger link or roster-rank lookups');
+  return sql.includes("event_type IN ('promoted', 'demoted')")?[[]]
+   :[[{rank_name:'',event_timestamp:'150',event_type:'joined'}]];
+ }};
+ const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Adam79',application_timestamp:'200'});
+ assert.equal(result,null);
+ assert.equal(statements.length,2);
+ assert.match(statements[1][0],/event_type/);assert.match(statements[1][0],/LIMIT 2/);
+ assert.deepEqual(statements[1][1],['Adam79',200]);
+});
+
+test('an earlier event or a lone removal still proves a previous stint',async()=>{
+ const build=(rows,links)=>async sql=>{
+  if(sql.includes('guildsync_roster_rank_history'))return [[]];
+  if(sql.includes("event_type IN ('promoted', 'demoted')"))return [[]];
+  if(sql.includes('guildsync_roster_events'))return [rows];
+  return [links];
+ };
+ const rejoined=await getReturningMemberHistory({execute:build([{rank_name:'',event_timestamp:'150',event_type:'joined'},
+  {rank_name:'',event_timestamp:'100',event_type:'joined'}],[{discord_user_id:'123'}])},
+  {application_action:'accepted',applicant_account:'Alice',application_timestamp:'200'});
+ assert.equal(rejoined.rankName,'');assert.deepEqual(rejoined.discordUserIds,['123']);
+ const removed=await getReturningMemberHistory({execute:build([{rank_name:'',event_timestamp:'150',event_type:'Removed (Not On Roster)'}],[])},
+  {application_action:'accepted',applicant_account:'Alice',application_timestamp:'200'});
+ assert.equal(removed.rankName,'');assert.deepEqual(removed.discordUserIds,[]);
+ const left=await getReturningMemberHistory({execute:build([{rank_name:'Soldier',event_timestamp:'150',event_type:'left'}],[])},
+  {application_action:'accepted',applicant_account:'Alice',application_timestamp:'200'});
+ assert.equal(left.rankName,'Soldier');
 });

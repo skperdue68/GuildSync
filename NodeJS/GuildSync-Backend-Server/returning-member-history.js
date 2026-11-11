@@ -11,10 +11,14 @@ export async function getReturningMemberHistory(db,record) {
     ORDER BY CAST(event_timestamp AS UNSIGNED) DESC,CAST(event_id AS UNSIGNED) DESC,event_id DESC LIMIT 1`,[account,acceptedAt]);
   // A former member whose rank was never captured still counts as returning, so fall
   // back to their latest roster activity. The bot then reports their Discord rank.
-  const [earlier]=history.length?[[]]:await db.execute(`SELECT rank_name,event_timestamp FROM guildsync_roster_events
+  const [earlier]=history.length?[[]]:await db.execute(`SELECT rank_name,event_timestamp,event_type FROM guildsync_roster_events
     WHERE LOWER(TRIM(LEADING '@' FROM account_name)) = LOWER(?)
       AND CAST(event_timestamp AS UNSIGNED) <= ?
-    ORDER BY CAST(event_timestamp AS UNSIGNED) DESC,CAST(event_id AS UNSIGNED) DESC,event_id DESC LIMIT 1`,[account,acceptedAt]);
+    ORDER BY CAST(event_timestamp AS UNSIGNED) DESC,CAST(event_id AS UNSIGNED) DESC,event_id DESC LIMIT 2`,[account,acceptedAt]);
+  // A single join and nothing else is this application's own invitation, not a previous
+  // stint, so a brand-new member must not be reported as returning. An earlier event or
+  // an explicit removal is evidence they were in the guild before.
+  if(!history.length && earlier.length<2 && !/^(left|kicked|removed)/i.test(String(earlier[0]?.event_type||'')))return null;
   const latest=history[0]||earlier[0];
   if(!latest)return null;
   const rankName=cleanRank(latest.rank_name);
