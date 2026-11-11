@@ -143,7 +143,25 @@ test('a Discord rank above the ESO roster rank is still advised, one below is no
  assert.equal(below.calls.length,0);
 });
 
-test('no ESO rank stays a request for confirmation when the Discord rank is the entry rank, missing or unlinked',async()=>{
+test('a new member with no ESO rank and no linked Discord account gets no returning-member line',async()=>{
+ const g=guild({names:['Adam79']});
+ const result=await restoreReturningMemberRank(g,{applicantAccount:'Adam79',returningMember:{rankName:'',rosterRank:'',discordUserIds:[]}});
+ assert.equal(result.notice,'');
+ assert.deepEqual(result.roleMentions,[]);
+ assert.equal(g.calls.length,0);
+ assert.equal(appendReturningMemberNotice('Application text',result.notice),'Application text');
+});
+
+test('a linked member who cannot be checked keeps a well-formed notice',async()=>{
+ const g=guild({existing:['3']});
+ g.members.fetch=async()=>{throw Error('Unknown Member');};
+ const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:['100']}});
+ assert.doesNotMatch(result.notice,/\*\*\*\*/);
+ assert.match(result.notice,/Returning member:\*\* Alice has no ESO rank on record, and their linked Discord account could not be checked/);
+ assert.deepEqual(result.roleMentions,['5']);
+});
+
+test('a recorded ESO rank still reports the promotion without a Discord link',async()=>{
  const entry=guild({existing:['1']});
  const onlyEntry=await restoreReturningMemberRank(entry,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:['100']}});
  assert.match(onlyEntry.notice,/has no ESO rank on record and holds only \*\*Gangsters\*\*/);
@@ -152,7 +170,8 @@ test('no ESO rank stays a request for confirmation when the Discord rank is the 
  assert.match(noRankRole.notice,/holds no guild rank role in Discord/);
  const unlinked=guild({names:['Bob']});
  const missing=await restoreReturningMemberRank(unlinked,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:[]}});
- assert.match(missing.notice,/no unique linked Discord account could be identified/);
+ assert.equal(missing.notice,'');
+ assert.deepEqual(missing.roleMentions,[]);
  const many=await restoreReturningMemberRank(entry,{applicantAccount:'Alice',returningMember:{rankName:'',discordUserIds:['100','101']}});
  assert.match(many.notice,/more than one confirmed account link exists/);
 });

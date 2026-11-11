@@ -43,6 +43,10 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
   };
   try {
     if(!recordedRank) {
+      // No ESO rank and no linked Discord account leaves nothing to report: without a
+      // link there is no evidence of a previous stint, so this is a new member and the
+      // post gets no returning-member line at all.
+      if(!linked.length)return {notice:'',roleMentions:[]};
       // ESO is the source of authority, so with no rank on record there is nothing to
       // restore. A linked member's Discord rank is the only evidence left, and it is
       // reported as advice because GuildSync cannot write ranks into ESO.
@@ -97,6 +101,7 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
     return result(`${promotion}${retained?'Their Discord account already holds a higher rank':alreadyHadTarget?'Their Discord account already held the correct rank':'Their Discord account was promoted automatically to'} **${safe(effective.name)}**.${cleanup}`);
   } catch(error) {
     log(`Returning member rank restoration failed for ${payload.applicantAccount}: ${error.message}`);
-    return result(`${promotion}Their Discord rank could not be restored automatically. Please check bot permissions/account linking.`);
+    return result(recordedRank?`${promotion}Their Discord rank could not be restored automatically. Please check bot permissions/account linking.`
+      :'has no ESO rank on record, and their linked Discord account could not be checked. An officer should confirm the in-game rank.');
   }
 }
