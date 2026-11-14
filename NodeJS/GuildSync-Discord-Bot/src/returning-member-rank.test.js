@@ -122,13 +122,17 @@ test('no ESO rank on record falls back to the highest Discord rank and advises t
  }
 });
 
-test('an equivalent Discord rank and ESO roster rank need no promotion advice',async()=>{
+test('an equivalent Discord rank and ESO roster rank produce no notice at all',async()=>{
  const g=guild({existing:['2']});
- const result=await restoreReturningMemberRank(g,{applicantAccount:'Alice',returningMember:{rankName:'',rosterRank:'Associate',discordUserIds:['100']}});
+ const result=await restoreReturningMemberRank(g,{applicantAccount:'Mirfeee',returningMember:{rankName:'',rosterRank:'Associate',discordUserIds:['100']}});
  assert.equal(g.calls.length,0);
- assert.match(result.notice,/has no ESO rank change on record, and their Discord \*\*Associates\*\* already matches their \*\*Associate\*\* ESO rank, so no in-game promotion is needed/);
- assert.doesNotMatch(result.notice,/should be promoted in game/);
- assert.deepEqual(result.roleMentions,['5']);
+ assert.equal(result.notice,'');
+ assert.deepEqual(result.roleMentions,[]);
+ assert.equal(appendReturningMemberNotice('Application text',result.notice),'Application text');
+ const singular=guild({existing:['3']});
+ const soldier=await restoreReturningMemberRank(singular,{applicantAccount:'Mirfeee',returningMember:{rankName:'',rosterRank:'Soldier',discordUserIds:['100']}});
+ assert.equal(soldier.notice,'');
+ assert.deepEqual(soldier.roleMentions,[]);
 });
 
 test('a Discord rank above the ESO roster rank is still advised, one below is not',async()=>{
