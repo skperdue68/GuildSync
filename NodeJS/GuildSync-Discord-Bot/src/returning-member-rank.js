@@ -59,11 +59,11 @@ export async function restoreReturningMemberRank(guild,payload,{rankRefs='',offi
       // The ESO roster keeps the rank after someone leaves. When the Discord rank is the
       // same rank, the member is already equivalent and no promotion is needed.
       const esoSide=safe(historical.rosterRank).trim(),esoSideRank=esoSide?rankOf({id:'',name:esoSide}):-1;
-      // Nothing is needed in game when the two ranks already match, so no footer is added:
-      // a line saying so is noise on a member who needs no action from anyone.
+      // Informational only: the two ranks already match, so no officer has to do anything
+      // and the line carries no officer ping.
       if(esoSide && canonical(esoSide)===canonical(highest.name)) {
-        log(`Returning member ${payload.applicantAccount}: Discord ${member.id} holds ${highest.name}, equivalent to ESO ${esoSide}; no notice.`);
-        return {notice:'',roleMentions:[]};
+        log(`Returning member ${payload.applicantAccount}: Discord ${member.id} holds ${highest.name}, equivalent to ESO ${esoSide}; no promotion advised.`);
+        return {notice:`**Returning member:** ${applicant} has no ESO rank change on record, and their Discord **${safe(highest.name)}** already matches their **${esoSide}** ESO rank, so no in-game promotion is needed.`,roleMentions:[]};
       }
       if(esoSide && esoSideRank>=0 && rankOf(highest)<esoSideRank)
         return result(`has no ESO rank change on record, and their **${esoSide}** ESO rank is already above their Discord **${safe(highest.name)}**, so no in-game promotion is needed.`);

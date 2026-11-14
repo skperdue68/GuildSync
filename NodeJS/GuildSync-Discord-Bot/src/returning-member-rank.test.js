@@ -122,16 +122,18 @@ test('no ESO rank on record falls back to the highest Discord rank and advises t
  }
 });
 
-test('an equivalent Discord rank and ESO roster rank produce no notice at all',async()=>{
+test('an equivalent Discord rank and ESO roster rank get an informational line without an officer ping',async()=>{
  const g=guild({existing:['2']});
  const result=await restoreReturningMemberRank(g,{applicantAccount:'Mirfeee',returningMember:{rankName:'',rosterRank:'Associate',discordUserIds:['100']}});
  assert.equal(g.calls.length,0);
- assert.equal(result.notice,'');
+ assert.equal(result.notice,'**Returning member:** Mirfeee has no ESO rank change on record, and their Discord **Associates** already matches their **Associate** ESO rank, so no in-game promotion is needed.');
  assert.deepEqual(result.roleMentions,[]);
- assert.equal(appendReturningMemberNotice('Application text',result.notice),'Application text');
+ assert.doesNotMatch(result.notice,/Consigliere|<@&/);
+ assert.equal(appendReturningMemberNotice('Application text',result.notice),
+  'Application text\n\n**Returning member:** Mirfeee has no ESO rank change on record, and their Discord **Associates** already matches their **Associate** ESO rank, so no in-game promotion is needed.');
  const singular=guild({existing:['3']});
  const soldier=await restoreReturningMemberRank(singular,{applicantAccount:'Mirfeee',returningMember:{rankName:'',rosterRank:'Soldier',discordUserIds:['100']}});
- assert.equal(soldier.notice,'');
+ assert.match(soldier.notice,/Discord \*\*Soldiers\*\* already matches their \*\*Soldier\*\* ESO rank, so no in-game promotion is needed\.$/);
  assert.deepEqual(soldier.roleMentions,[]);
 });
 
@@ -144,6 +146,7 @@ test('a Discord rank above the ESO roster rank is still advised, one below is no
  const lower=await restoreReturningMemberRank(below,{applicantAccount:'Alice',returningMember:{rankName:'',rosterRank:'Soldier',discordUserIds:['100']}});
  assert.match(lower.notice,/their \*\*Soldier\*\* ESO rank is already above their Discord \*\*Associates\*\*, so no in-game promotion is needed/);
  assert.doesNotMatch(lower.notice,/should be promoted in game/);
+ assert.deepEqual(lower.roleMentions,['5']);
  assert.equal(below.calls.length,0);
 });
 
