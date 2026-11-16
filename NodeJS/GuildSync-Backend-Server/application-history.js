@@ -1,10 +1,12 @@
+import {resolveEsoAccountName} from './eso-account-identity.js';
 import {canIngestGuildSyncRole} from './role-permissions.js';
 
 export async function getApplicationHistory(db, accountName) {
-  const account=String(accountName || '').trim().replace(/^@/,'');
+  let account=String(accountName||'').trim().replace(/^@/,'');
   if (!account || account.length>50) throw new Error('A valid account name is required.');
-  const [rows]=await db.execute(`SELECT applicant_account,application_text,application_timestamp,
-      officer_processing,application_action,decline_message,blacklist_message
+  account=String(await resolveEsoAccountName(db,account)).replace(/^@/,'');
+  const [rows]=await db.execute(`SELECT applicant_account,applicant_account_original,application_text,application_timestamp,
+      officer_processing,officer_processing_original,application_action,decline_message,blacklist_message
     FROM guildsync_applications
     WHERE LOWER(TRIM(LEADING '@' FROM applicant_account)) = LOWER(?)
     ORDER BY CAST(application_timestamp AS UNSIGNED) DESC`,[account]);

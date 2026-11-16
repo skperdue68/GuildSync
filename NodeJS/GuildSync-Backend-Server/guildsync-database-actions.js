@@ -1,3 +1,4 @@
+import {afterEsoIdentityUnlock,getEsoIdentitySourceDB,initializeEsoAccountIdentity,resolveEsoAccountName, withEsoIdentityLock, getEsoAccountRenameHistory, searchEsoAccountNames} from './eso-account-identity.js';
 import {initializeRosterNoteAccess} from './roster-note-access.js';
 import {biweeklySalesEndAtOrAfter, monthlySalesEndAtOrAfter, previousMonthlySalesEnd, shiftRaffleSalesEnd, normalizeScheduledSalesEnd} from './raffle-schedule.js';
 import {initializeCommunityStatisticsSchema} from './community-statistics.js';
@@ -624,6 +625,7 @@ async function initializeSchema(db) {
     COLLATE utf8mb4_unicode_ci
   `);
 
+  await initializeEsoAccountIdentity(db);
 }
 
 
@@ -712,7 +714,12 @@ function normalizeApplicationRecord(record = {}) {
   };
 }
 
-export async function recordGuildSyncApplications(applicationDB, records = [], {submittedBy} = {}) {
+export async function recordGuildSyncApplications(db, ...args) {
+  validateEsoGuildImport('applications', {records:Array.isArray(args[0])?args[0]:[args[0]]});
+  return withEsoIdentityLock(db, connection => recordGuildSyncApplicationsUnlocked(connection, ...args));
+}
+
+async function recordGuildSyncApplicationsUnlocked(applicationDB, records = [], {submittedBy} = {}) {
   validateEsoGuildImport('applications', {records: Array.isArray(records) ? records : [records]});
   const normalizedRecords = (Array.isArray(records) ? records : [records])
     .map(normalizeApplicationRecord)
@@ -723,20 +730,26 @@ export async function recordGuildSyncApplications(applicationDB, records = [], {
   }
 
   for (const record of normalizedRecords) {
+    const originalAccount = record.applicant_account;
+    record.applicant_account = await resolveEsoAccountName(applicationDB, originalAccount);
+    const originalOfficer=record.officer_processing;
+    record.officer_processing=await resolveEsoAccountName(applicationDB, originalOfficer);
     await applicationDB.execute(
       `
         INSERT INTO guildsync_applications (
           applicant_account,
+          applicant_account_original,
           application_text,
           application_timestamp,
           officer_processing,
+          officer_processing_original,
           application_action,
           decline_message,
           blacklist_message,
           submitted_by_discord_id,
           discord_broadcast
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         ON DUPLICATE KEY UPDATE
           submitted_by_discord_id = COALESCE(VALUES(submitted_by_discord_id), submitted_by_discord_id),
           application_text = VALUES(application_text),
@@ -756,9 +769,11 @@ export async function recordGuildSyncApplications(applicationDB, records = [], {
       `,
       [
         record.applicant_account,
+        originalAccount,
         record.application_text,
         record.application_timestamp,
         record.officer_processing,
+        originalOfficer,
         record.application_action,
         record.decline_message,
         record.blacklist_message,
@@ -781,6 +796,8 @@ export async function getGuildSyncApplicationsByApplicantSearch(applicationDB, a
 
   const searchTerm = `%${normalizedName}%`;
 
+  const aliasMatches = await searchEsoAccountNames(applicationDB, normalizedName);
+  const aliasClause = aliasMatches.length ? ` OR LOWER(TRIM(LEADING '@' FROM applicant_account)) IN (${aliasMatches.map(() => '?').join(',')})` : '';
   const [rows] = await applicationDB.execute(
     `
       SELECT
@@ -794,16 +811,18 @@ export async function getGuildSyncApplicationsByApplicantSearch(applicationDB, a
         submitted_by_discord_id,
         discord_broadcast
       FROM guildsync_applications
-      WHERE applicant_account LIKE ?
+      WHERE applicant_account LIKE ?${aliasClause}
       ORDER BY applicant_account, CAST(application_timestamp AS UNSIGNED) DESC
     `,
-    [searchTerm]
+    [searchTerm, ...aliasMatches.map(name => name.toLowerCase())]
   );
 
   return rows;
 }
 
-export async function markGuildSyncApplicationRecordBroadcasted(applicationDB, applicantAccount, applicationTimestamp) {
+export async function markGuildSyncApplicationRecordBroadcasted(db, applicantAccount, applicationTimestamp) {
+  return withEsoIdentityLock(db, async applicationDB=>{
+  applicantAccount=await resolveEsoAccountName(applicationDB,applicantAccount);
   await applicationDB.execute(
     `
       UPDATE guildsync_applications
@@ -813,10 +832,11 @@ export async function markGuildSyncApplicationRecordBroadcasted(applicationDB, a
     `,
     [applicantAccount, applicationTimestamp]
   );
+  });
 }
 
 export async function getGuildSyncApplicationByApplicantAccount(applicationDB, applicantAccount) {
-  const normalizedName = String(applicantAccount || '').trim();
+  const normalizedName = String(await resolveEsoAccountName(applicationDB,applicantAccount) || '').trim();
 
   if (!normalizedName) {
     throw new Error('Applicant account name is required.');
@@ -1773,6 +1793,8 @@ export async function getBankingHistoryMatches(applicationDB, query = '') {
   }
 
   const like = `%${cleanQuery}%`;
+  const aliasMatches = await searchEsoAccountNames(applicationDB, cleanQuery);
+  const aliasClause = aliasMatches.length ? ` OR LOWER(TRIM(LEADING '@' FROM account_name)) IN (${aliasMatches.map(() => '?').join(',')})` : '';
   const [rows] = await applicationDB.execute(
     `
       SELECT
@@ -1780,19 +1802,19 @@ export async function getBankingHistoryMatches(applicationDB, query = '') {
         COUNT(*) AS record_count,
         MAX(CAST(event_timestamp AS UNSIGNED)) AS last_event_timestamp
       FROM guildsync_banking_entries
-      WHERE account_name LIKE ?
+      WHERE account_name LIKE ?${aliasClause}
       GROUP BY account_name
       ORDER BY LOWER(account_name) ASC
       LIMIT 50
     `,
-    [like]
+    [like, ...aliasMatches.map(name => name.toLowerCase())]
   );
 
   return rows;
 }
 
 export async function getBankingHistoryForAccount(applicationDB, accountName = '') {
-  const cleanAccountName = String(accountName || '').trim();
+  const cleanAccountName = String(await resolveEsoAccountName(applicationDB, accountName) || '').trim();
 
   if (!cleanAccountName) {
     return [];
@@ -1811,7 +1833,7 @@ export async function getBankingHistoryForAccount(applicationDB, accountName = '
         data_source,
         note
       FROM guildsync_banking_entries
-      WHERE LOWER(account_name) = LOWER(?)
+      WHERE LOWER(TRIM(LEADING '@' FROM account_name)) = LOWER(TRIM(LEADING '@' FROM ?))
       ORDER BY CAST(event_timestamp AS UNSIGNED) ASC, CAST(event_id AS UNSIGNED) ASC
       LIMIT 500
     `,
@@ -2339,7 +2361,11 @@ function normalizePositiveInteger(value, defaultValue, minValue, maxValue) {
   return Math.min(Math.max(integer, minValue), maxValue);
 }
 
-export async function checkoutDepositMail(applicationDB, payload = {}) {
+export async function checkoutDepositMail(db, ...args) {
+  return withEsoIdentityLock(db, connection => checkoutDepositMailUnlocked(connection, ...args));
+}
+
+async function checkoutDepositMailUnlocked(applicationDB, payload = {}) {
   const checkedOutBy = String(payload.checked_out_by || payload.checkedOutBy || '').trim();
 
   if (!checkedOutBy) {
@@ -2685,7 +2711,12 @@ export async function markDepositMailSent(applicationDB, payload = {}) {
   }
 }
 
-export async function insertBankingEntries(applicationDB, payload) {
+export async function insertBankingEntries(db, ...args) {
+  validateEsoGuildImport('banking', args[0]||{});
+  return withEsoIdentityLock(db, connection => insertBankingEntriesUnlocked(connection, ...args));
+}
+
+async function insertBankingEntriesUnlocked(applicationDB, payload) {
   validateEsoGuildImport('banking', payload);
   const entries = Array.isArray(payload?.entries)
     ? payload.entries
@@ -2719,7 +2750,8 @@ export async function insertBankingEntries(applicationDB, payload) {
       const initial_written_to_eso_at_expression = is_other_transaction_type ? 'NOW()' : 'NULL';
       const initial_sent_at_expression = is_other_transaction_type ? 'NOW()' : 'NULL';
       const initial_failed_reason = is_other_transaction_type ? 'No deposit mail required for other category' : null;
-      const account_name = String(entry.displayName || entry.receivedFrom || entry.accountName || entry.account_name || '').trim();
+      const account_name_original = String(entry.displayName || entry.receivedFrom || entry.accountName || entry.account_name || '').trim();
+      const account_name = await resolveEsoAccountName(connection, account_name_original);
       const event_timestamp = Number(entry.time || entry.eventTimestamp || entry.event_timestamp);
       const deposit_amount = Number(entry.amount || entry.depositAmount || entry.deposit_amount);
 
@@ -2743,6 +2775,7 @@ export async function insertBankingEntries(applicationDB, payload) {
             event_id,
             transaction_type,
             account_name,
+            account_name_original,
             event_timestamp,
             event_datetime,
             deposit_amount,
@@ -2759,6 +2792,7 @@ export async function insertBankingEntries(applicationDB, payload) {
             failed_reason
           )
           VALUES (
+            ?,
             ?,
             ?,
             ?,
@@ -2782,6 +2816,7 @@ export async function insertBankingEntries(applicationDB, payload) {
           event_id,
           transaction_type,
           account_name,
+          account_name_original,
           event_timestamp,
           event_timestamp,
           deposit_amount,
@@ -2831,14 +2866,17 @@ export async function insertBankingEntries(applicationDB, payload) {
     connection.release();
   }
 
+  await afterEsoIdentityUnlock(applicationDB, async()=>{
+    const exportDB=getEsoIdentitySourceDB(applicationDB);
   if (insertedEntries.length) {
     try {
       const settings = googleSheetsBankingConfig();
-      const enriched = settings.enabled ? await getBankingDataJSON(applicationDB) : insertedEntries;
+      const enriched = settings.enabled ? await getBankingDataJSON(exportDB) : insertedEntries;
       const byId = new Map(enriched.map(entry => [String(entry.eventId), entry]));
-      await syncBankingEntriesToGoogleSheets(insertedEntries.map(entry => ({ ...entry, ...(byId.get(String(entry.eventId)) || {}) })), { uploadedBy: payload.uploadedBy, onCompleted:ids=>createSheetsExportStore(applicationDB).completed(ids,settings.spreadsheetId) });
+      await syncBankingEntriesToGoogleSheets(insertedEntries.map(entry => ({ ...entry, ...(byId.get(String(entry.eventId)) || {}) })), { uploadedBy: payload.uploadedBy, onCompleted:ids=>createSheetsExportStore(exportDB).completed(ids,settings.spreadsheetId) });
     } catch (error) { console.error(`Google Sheets banking sync failed: ${error.message}`); }
   }
+  });
 
   return {
     banking_entries_received: entries.length,
@@ -2952,11 +2990,19 @@ export async function getRosterDataJSON(applicationDB) {
 
   // Shared/import responses must never contain unfiltered note indicators.
   // Authenticated request/broadcast paths decorate counts per recipient.
-  return rosterMembers.map(member => ({...member,note_count:0}));
+  const [aliases]=await applicationDB.execute(`SELECT m.current_name,a.account_name FROM guildsync_eso_account_aliases a
+    JOIN guildsync_eso_members m ON m.member_id=a.member_id`);
+  const byAccount=new Map();
+  for(const alias of aliases){
+    const key=String(alias.current_name||'').toLowerCase();
+    if(!byAccount.has(key))byAccount.set(key,[]);
+    byAccount.get(key).push(alias.account_name);
+  }
+  return rosterMembers.map(member => ({...member,note_count:0,aliases:byAccount.get(String(member.account_name).replace(/^@/,'').toLowerCase())||[]}));
 }
 
 export async function getRosterMemberNotes(applicationDB, accountName = '') {
-  const cleanAccountName = normalizeRosterAccountName(accountName);
+  const cleanAccountName = normalizeRosterAccountName(await resolveEsoAccountName(applicationDB, accountName));
 
   if (!cleanAccountName) {
     return [];
@@ -2985,8 +3031,12 @@ export async function getRosterMemberNotes(applicationDB, accountName = '') {
   }));
 }
 
-export async function addRosterMemberNote(applicationDB, { accountName = '', officerName = '', note = '' } = {}) {
-  const cleanAccountName = normalizeRosterAccountName(accountName);
+export async function addRosterMemberNote(db, ...args) {
+  return withEsoIdentityLock(db, connection => addRosterMemberNoteUnlocked(connection, ...args));
+}
+
+async function addRosterMemberNoteUnlocked(applicationDB, { accountName = '', officerName = '', note = '' } = {}) {
+  const cleanAccountName = normalizeRosterAccountName(await resolveEsoAccountName(applicationDB, accountName));
   const cleanOfficerName = String(officerName || '').trim();
   const cleanNote = String(note || '').trim();
 
@@ -3029,24 +3079,26 @@ export async function getRosterRankHistoryMatches(applicationDB, query = '') {
     return [];
   }
 
+  const aliasMatches = await searchEsoAccountNames(applicationDB, cleanQuery);
+  const aliasClause = aliasMatches.length ? ` OR LOWER(TRIM(LEADING '@' FROM account_name)) IN (${aliasMatches.map(() => '?').join(',')})` : '';
   const [rows] = await applicationDB.execute(
     `
       SELECT
         account_name,
         rank_name AS rank
       FROM guildsync_roster_rank_history
-      WHERE account_name LIKE ?
+      WHERE account_name LIKE ?${aliasClause}
       ORDER BY account_name ASC
       LIMIT 50
     `,
-    [`%${cleanQuery}%`]
+    [`%${cleanQuery}%`, ...aliasMatches.map(name => name.toLowerCase())]
   );
 
   return rows;
 }
 
 export async function getRosterStreamHistoryForAccount(applicationDB, accountName = '') {
-  const cleanAccountName = normalizeRosterAccountName(accountName);
+  const cleanAccountName = normalizeRosterAccountName(await resolveEsoAccountName(applicationDB, accountName));
 
   if (!cleanAccountName) {
     return [];
@@ -3055,10 +3107,12 @@ export async function getRosterStreamHistoryForAccount(applicationDB, accountNam
   const [rows] = await applicationDB.execute(
     `
       SELECT
+        account_name_original,
         event_type,
         rank_name AS rank,
         event_timestamp AS timestamp,
-        officer_account_name AS officer
+        officer_account_name AS officer,
+        officer_account_name_original AS officer_original
       FROM guildsync_roster_events
       WHERE account_name = ?
       ORDER BY CAST(event_timestamp AS UNSIGNED) DESC, event_timestamp DESC
@@ -3067,11 +3121,17 @@ export async function getRosterStreamHistoryForAccount(applicationDB, accountNam
     [cleanAccountName]
   );
 
-  return rows;
+  const renames = await getEsoAccountRenameHistory(applicationDB, cleanAccountName);
+  return [...rows, ...renames].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
 }
 
 
-export async function processRosterData(applicationDB, payload = {}) {
+export async function processRosterData(db, ...args) {
+  validateEsoGuildImport('roster', args[0]||{});
+  return withEsoIdentityLock(db, connection => processRosterDataUnlocked(connection, ...args));
+}
+
+async function processRosterDataUnlocked(applicationDB, payload = {}) {
   validateEsoGuildImport('roster', payload);
   const data = payload?.data && typeof payload.data === 'object'
     ? payload.data
@@ -3127,7 +3187,7 @@ export async function processRosterData(applicationDB, payload = {}) {
           await connection.execute(`UPDATE guildsync_roster_members SET in_roster = 0`);
 
           for (const member of guildMembers) {
-            const accountName = normalizeRosterAccountName(member.accountName);
+            const accountName = normalizeRosterAccountName(await resolveEsoAccountName(connection, member.accountName));
             const rankName = normalizeRosterRank(member.rankName || member.rank);
 
             if (!accountName) {
@@ -3263,11 +3323,13 @@ async function processSingleRosterStreamEvent(connection, event = {}, snapshotTi
     return false;
   }
 
-  const accountName = targetDisplayName || actingDisplayName;
+  const originalAccountName = targetDisplayName || actingDisplayName;
+  const accountName = normalizeRosterAccountName(await resolveEsoAccountName(connection, originalAccountName));
 
-  const officerName = ['kicked', 'promoted', 'demoted', 'application accepted', 'application declined', 'application_accepted', 'application_declined'].includes(eventType)
+  const originalOfficerName = ['kicked', 'promoted', 'demoted', 'application accepted', 'application declined', 'application_accepted', 'application_declined'].includes(eventType)
     ? actingDisplayName
     : '';
+  const officerName=normalizeRosterAccountName(await resolveEsoAccountName(connection,originalOfficerName));
 
   if (!accountName) {
     return false;
@@ -3283,14 +3345,16 @@ async function processSingleRosterStreamEvent(connection, event = {}, snapshotTi
       INSERT IGNORE INTO guildsync_roster_events (
         event_id,
         account_name,
+        account_name_original,
         event_type,
         rank_name,
         event_timestamp,
-        officer_account_name
+        officer_account_name,
+        officer_account_name_original
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [event_id, accountName, eventType, rankName, String(timestamp), officerName]
+    [event_id, accountName, originalAccountName, eventType, rankName, String(timestamp), officerName, originalOfficerName]
   );
 
   const inserted = (insertResult.affectedRows || 0) > 0;
@@ -3601,8 +3665,13 @@ export async function getDiscordRankAuditReport(applicationDB) {
 }
 
 
-export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) {
-  const accountName = normalizeRosterAccountName(payload.account_name || payload.accountName);
+export async function addManualBiweeklyTicketEntry(db, ...args) {
+  return withEsoIdentityLock(db, connection => addManualBiweeklyTicketEntryUnlocked(connection, ...args));
+}
+
+async function addManualBiweeklyTicketEntryUnlocked(applicationDB, payload = {}) {
+  const originalAccountName = normalizeRosterAccountName(payload.account_name || payload.accountName);
+  const accountName = normalizeRosterAccountName(await resolveEsoAccountName(applicationDB, originalAccountName));
   const note = String(payload.note || payload.reason || '').trim().slice(0, 160);
   const ticketTypeInput = String(payload.ticket_type || payload.ticketType || payload.raffle_type || payload.raffleType || '').trim().toLowerCase();
   const transactionType = ticketTypeInput === 'monthly' || ticketTypeInput === '50/50' || ticketTypeInput === '5050'
@@ -3654,6 +3723,7 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
         event_id,
         transaction_type,
         account_name,
+        account_name_original,
         event_timestamp,
         event_datetime,
         deposit_amount,
@@ -3670,6 +3740,7 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
         failed_reason
       )
       VALUES (
+        ?,
         ?,
         ?,
         ?,
@@ -3693,6 +3764,7 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
       event_id,
       transactionType,
       accountName,
+      originalAccountName,
       String(timestamp),
       timestamp,
       goldValue,
@@ -3721,6 +3793,8 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
 
   await setSetting(applicationDB, 'banking_refresh', new Date().toISOString());
 
+  await afterEsoIdentityUnlock(applicationDB, async()=>{
+    const exportDB=getEsoIdentitySourceDB(applicationDB);
   if (result.affectedRows && googleSheetsBankingConfig().enabled) {
     try {
       const entry = {
@@ -3728,13 +3802,14 @@ export async function addManualBiweeklyTicketEntry(applicationDB, payload = {}) 
         amount: goldValue, ticketAmount: tickets, dataSource, note: auditedNote, time: timestamp
       };
       const sheetSettings = googleSheetsBankingConfig();
-      const versions = await getRaffleBonusVersions(applicationDB);
-      const overrides = await getRaffleBonusOverrides(applicationDB);
+      const versions = await getRaffleBonusVersions(exportDB);
+      const overrides = await getRaffleBonusOverrides(exportDB);
       await syncBankingEntriesToGoogleSheets([{
         ...entry, ...calculateBankingEntryBonus(entry, versions, overrides)
-      }], { uploadedBy: addedBy, onCompleted:ids=>createSheetsExportStore(applicationDB).completed(ids,sheetSettings.spreadsheetId) });
+      }], { uploadedBy: addedBy, onCompleted:ids=>createSheetsExportStore(exportDB).completed(ids,sheetSettings.spreadsheetId) });
     } catch (error) { console.error(`Google Sheets manual entry sync failed: ${error.message}`); }
   }
+  });
 
   return {
     eventId: event_id,
@@ -4768,7 +4843,11 @@ async function removeWeakerMemberAutoLinkCandidates(applicationDB, { esoAccountN
   `, [esoName, discordId, esoName, discordId, confidence, confidence]);
 }
 
-export async function runMemberAutoLinking(applicationDB) {
+export async function runMemberAutoLinking(db, ...args) {
+  return withEsoIdentityLock(db, connection => runMemberAutoLinkingUnlocked(connection, ...args));
+}
+
+async function runMemberAutoLinkingUnlocked(applicationDB) {
   const { rosterRows, discordRows, linkRows } = await loadMemberLinkInputs(applicationDB);
   const maps = buildExistingLinkMaps(linkRows);
 
@@ -4874,8 +4953,12 @@ export async function runMemberAutoLinking(applicationDB) {
   return { linked, candidates };
 }
 
-export async function upsertMemberLink(applicationDB, link = {}) {
-  const esoAccountName = String(link.esoAccountName || link.eso_account_name || '').trim().replace(/^@+/, '');
+export async function upsertMemberLink(db, ...args) {
+  return withEsoIdentityLock(db, connection => upsertMemberLinkUnlocked(connection, ...args));
+}
+
+async function upsertMemberLinkUnlocked(applicationDB, link = {}) {
+  const esoAccountName = String(await resolveEsoAccountName(applicationDB, link.esoAccountName || link.eso_account_name || '')).trim().replace(/^@+/, '');
   const discordUserId = String(link.discordUserId || link.discord_user_id || '').trim();
 
   if (!esoAccountName) throw new Error('ESO account name is required.');
@@ -4953,7 +5036,7 @@ export async function getMemberLinks(applicationDB) {
 
 export async function getMemberLinkOptions(applicationDB, payload = {}) {
   const mode = String(payload.mode || '').trim();
-  const accountName = String(payload.accountName || '').trim().replace(/^@+/, '');
+  const accountName = String(await resolveEsoAccountName(applicationDB, payload.accountName || '')).trim().replace(/^@+/, '');
   const discordUserId = String(payload.discordUserId || '').trim();
   const { rosterRows, discordRows, linkRows } = await loadMemberLinkInputs(applicationDB);
   const maps = buildExistingLinkMaps(linkRows);
@@ -5012,8 +5095,12 @@ export async function getMemberLinkOptions(applicationDB, payload = {}) {
     });
 }
 
-export async function acceptMemberLinkCandidate(applicationDB, payload = {}) {
-  const esoAccountName = String(payload.esoAccountName || payload.eso_account_name || '').trim().replace(/^@+/, '');
+export async function acceptMemberLinkCandidate(db, ...args) {
+  return withEsoIdentityLock(db, connection => acceptMemberLinkCandidateUnlocked(connection, ...args));
+}
+
+async function acceptMemberLinkCandidateUnlocked(applicationDB, payload = {}) {
+  const esoAccountName = String(await resolveEsoAccountName(applicationDB, payload.esoAccountName || payload.eso_account_name || '')).trim().replace(/^@+/, '');
   const discordUserId = String(payload.discordUserId || payload.discord_user_id || '').trim();
   if (!esoAccountName) throw new Error('ESO account name is required.');
 
@@ -5061,8 +5148,12 @@ function linkFieldNameFromPayload(value) {
   return null;
 }
 
-export async function manualLinkMember(applicationDB, payload = {}) {
-  const esoAccountName = String(payload.esoAccountName || payload.eso_account_name || '').trim().replace(/^@+/, '');
+export async function manualLinkMember(db, ...args) {
+  return withEsoIdentityLock(db, connection => manualLinkMemberUnlocked(connection, ...args));
+}
+
+async function manualLinkMemberUnlocked(applicationDB, payload = {}) {
+  const esoAccountName = String(await resolveEsoAccountName(applicationDB, payload.esoAccountName || payload.eso_account_name || '')).trim().replace(/^@+/, '');
   const discordUserId = String(payload.discordUserId || payload.discord_user_id || '').trim();
   if (!esoAccountName || !discordUserId) throw new Error('ESO account and Discord user are required.');
 
@@ -5098,8 +5189,12 @@ export async function manualLinkMember(applicationDB, payload = {}) {
 }
 
 
-export async function unblockMemberAutoLink(applicationDB, payload = {}) {
-  const esoAccountName = String(payload.esoAccountName || payload.eso_account_name || '').trim().replace(/^@+/, '');
+export async function unblockMemberAutoLink(db, ...args) {
+  return withEsoIdentityLock(db, connection => unblockMemberAutoLinkUnlocked(connection, ...args));
+}
+
+async function unblockMemberAutoLinkUnlocked(applicationDB, payload = {}) {
+  const esoAccountName = String(await resolveEsoAccountName(applicationDB, payload.esoAccountName || payload.eso_account_name || '')).trim().replace(/^@+/, '');
   const discordUserId = String(payload.discordUserId || payload.discord_user_id || '').trim();
 
   if (!esoAccountName || !discordUserId) {
@@ -5120,8 +5215,12 @@ export async function unblockMemberAutoLink(applicationDB, payload = {}) {
   return { removed: Number(result?.affectedRows || 0) };
 }
 
-export async function manualUnlinkMember(applicationDB, payload = {}) {
-  const esoAccountName = String(payload.esoAccountName || payload.eso_account_name || '').trim().replace(/^@+/, '');
+export async function manualUnlinkMember(db, ...args) {
+  return withEsoIdentityLock(db, connection => manualUnlinkMemberUnlocked(connection, ...args));
+}
+
+async function manualUnlinkMemberUnlocked(applicationDB, payload = {}) {
+  const esoAccountName = String(await resolveEsoAccountName(applicationDB, payload.esoAccountName || payload.eso_account_name || '')).trim().replace(/^@+/, '');
   const discordUserId = String(payload.discordUserId || payload.discord_user_id || '').trim();
 
   if (!esoAccountName || !discordUserId) {
@@ -5240,4 +5339,3 @@ function formatAssociateTicketReportEarliestDeposit(row = {}) {
   const rafflePeriod = formatAssociateTicketReportRafflePeriod(row);
   return [depositDate, rafflePeriod].filter(Boolean).join(' | ');
 }
-

@@ -1,3 +1,4 @@
+import {withIdentityTestDB} from './identity-test-db.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,6 +48,7 @@ test('notes and counts are filtered before leaving backend; authorship is captur
    if(sql.startsWith('INSERT INTO guildsync_roster_member_notes')){writes.push(args);return [{insertId:3}];}
    return [notes];
  }};
+ withIdentityTestDB(db);
  const service=createRosterNoteAccess({db,loginDB:{execute:async()=>[[{allowed,role:'admin'}]]}});
  const socket={guildSyncAuthenticated:true,guildSyncUser:{discord_user_id:'99',display_name:'Author'}};
  assert.deepEqual((await service.read(socket,'Alice')).map(n=>n.note),['Visible']);

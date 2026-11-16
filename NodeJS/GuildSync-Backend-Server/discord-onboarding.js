@@ -1,10 +1,11 @@
+import {getEsoIdentitySourceDB,afterEsoIdentityUnlock} from './eso-account-identity.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { createOnboardingStore } from './discord-onboarding-store.js';
 
 const services=new WeakMap();
 export async function notifyDiscordConfirmedLink(db,userId) {
- const service=services.get(db);
- if(service) await service.observeConfirmedLink(userId).catch(error=>service.log('Onboarding link queue retry needed: '+error.message));
+ const service=services.get(getEsoIdentitySourceDB(db));
+ if(service)await afterEsoIdentityUnlock(db,()=>service.observeConfirmedLink(userId).catch(error=>service.log('Onboarding link queue retry needed: '+error.message)));
 }
 export function createDiscordOnboarding(db,{store=createOnboardingStore(db),now=()=>Math.floor(Date.now()/1000),log=console.log,wake=()=>{}}={}) {
  const id=(g,u,kind,generation=0)=>createHash('sha256').update(g+':'+u+':'+kind+':'+generation).digest('hex');

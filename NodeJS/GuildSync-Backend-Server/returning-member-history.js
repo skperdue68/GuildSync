@@ -1,10 +1,12 @@
+import {resolveEsoAccountName} from './eso-account-identity.js';
 const cleanRank=value=>{const rank=String(value||'').trim();return /^unknown$/i.test(rank)?'':rank;};
 
 export async function getReturningMemberHistory(db,record) {
   if(String(record.application_action||'').toLowerCase()!=='accepted')return null;
-  const account=String(record.applicant_account||'').trim().replace(/^@/,'');
+  let account=String(record.applicant_account||'').trim().replace(/^@/,'');
   const acceptedAt=Number(record.application_timestamp);
   if(!account || !Number.isSafeInteger(acceptedAt) || acceptedAt<=0)return null;
+  account=String(await resolveEsoAccountName(db,account)).replace(/^@/,'');
   const [history]=await db.execute(`SELECT rank_name,event_timestamp FROM guildsync_roster_events
     WHERE LOWER(TRIM(LEADING '@' FROM account_name)) = LOWER(?) AND event_type IN ('promoted', 'demoted')
       AND CAST(event_timestamp AS UNSIGNED) <= ?

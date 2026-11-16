@@ -1,3 +1,4 @@
+import {createEsoAccountRenames,registerEsoAccountRenameSocket} from './eso-account-identity.js';
 import {createUserSwitches,initializeUserSwitchSchema,registerUserSwitchSocket,registerUserSwitchGuard} from './user-switch.js';
 import {registerApplicationHistorySocket} from './application-history.js';
 import {createRosterNoteAccess} from './roster-note-access.js';
@@ -593,6 +594,8 @@ const desktopVersionPolicy=createDesktopVersionPolicy({
 });
 io.on('connection',socket=>desktopVersionPolicy.admit(socket,()=>registerGuildSyncConnection(socket)));
 
+const esoAccountRenames=createEsoAccountRenames(applicationDB);
+
 function registerGuildSyncConnection(socket) {
   if(registerVoiceOnlyConnection(socket,registerVoiceForSocket))return;
   registerDiscordGuildOrigin(socket, Log);
@@ -610,6 +613,14 @@ function registerGuildSyncConnection(socket) {
     }
   });
   registerApplicationHistorySocket(socket,{db:applicationDB,loginDB});
+  registerEsoAccountRenameSocket(socket,{
+    service:esoAccountRenames,loginDB,
+    effectiveRole:(current,role)=>roleViews.effective(current.guildSyncRoleViewId,role)||role,
+    onRenamed:async result=>{
+      Log(`ESO account renamed from @${result.accountName} to @${result.newAccountName}.`);
+      await Promise.allSettled([broadcastRosterDataUpdate(),broadcastMemberLinksUpdate(),broadcastBankingDataUpdate()]);
+    }
+  });
   registerRolePermissions(socket,loginDB,roleViews,{authorizeUserSwitch:async current=>{
     if(!current.guildSyncAuthenticated||current.guildSyncAuthType!=='GuildSync user')return false;
     return userSwitches.authorize(current.guildSyncActorId);

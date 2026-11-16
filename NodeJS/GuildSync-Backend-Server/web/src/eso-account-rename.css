@@ -1,0 +1,3 @@
+.eso-account-rename { margin: 10px 0; padding: 10px; border: 1px solid var(--border-color, #555); border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.eso-account-rename-preview, .eso-account-rename .discord-data-error { flex-basis: 100%; overflow-wrap: anywhere; }
+.roster-history-recorded-as, .roster-history-rename-details { display: block; font-size: .85em; color: var(--muted-text, #aaa); overflow-wrap: anywhere; }

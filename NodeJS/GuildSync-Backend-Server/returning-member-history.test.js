@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import {getReturningMemberHistory} from './returning-member-history.js';
 test('accepted application uses exact ESO account and latest rank change before acceptance',async()=>{
  const calls=[];
- const db={execute:async(sql,args)=>{calls.push([sql,args]);return sql.includes('guildsync_roster_events')?[[{rank_name:'Soldier',event_timestamp:'100'}]]:[[{discord_user_id:'123'}]];}};
+ const db={execute:async(sql,args)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];calls.push([sql,args]);return sql.includes('guildsync_roster_events')?[[{rank_name:'Soldier',event_timestamp:'100'}]]:[[{discord_user_id:'123'}]];}};
  const result=await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'@Alice',application_timestamp:'200',submitted_by_discord_id:'777'});
  assert.equal(result.rankName,'Soldier');assert.deepEqual(result.discordUserIds,['123']);
  assert.equal(result.actorDiscordId,'777');
@@ -16,9 +16,9 @@ test('accepted application uses exact ESO account and latest rank change before 
 test('application import captures the authenticated submitter and ignores a forged record submitter',async()=>{
  const source=fs.readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
  const a=source.indexOf('function normalizeApplicationRecord('),b=source.indexOf('export async function getGuildSyncApplicationsByApplicantSearch(',a);
- const ctx=vm.createContext({validateEsoGuildImport(){}});
+ const ctx=vm.createContext({resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db),validateEsoGuildImport(){}});
  vm.runInContext(source.slice(a,b).replace('export async','async'),ctx);
- const writes=[];const db={execute:async(sql,args)=>{writes.push(args);return [{}];}};
+ const writes=[];const db={execute:async(sql,args)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];writes.push(args);return [{}];}};
  const records=[{applicant_account:'Alice',application_timestamp:200,application_action:'accepted',submitted_by_discord_id:'forged'}];
  await ctx.recordGuildSyncApplications(db,records,{submittedBy:'777'});
  assert.equal(writes[0].at(-1),'777');assert.ok(!writes[0].includes('forged'));
@@ -26,7 +26,7 @@ test('application import captures the authenticated submitter and ignores a forg
  assert.equal(writes[1].at(-1),null);
 });
 test('declined applications, first-time members, and missing dates do not restore roles',async()=>{
- let queries=0;const db={execute:async()=>{queries++;return [[]];}};
+ let queries=0;const db={execute:async(sql)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];queries++;return [[]];}};
  assert.equal(await getReturningMemberHistory(db,{application_action:'declined'}),null);
  assert.equal(await getReturningMemberHistory(db,{application_action:'accepted',applicant_account:'Alice'}),null);
  assert.equal(queries,0);
@@ -43,7 +43,7 @@ for (const latestType of ['demoted','promoted']) {
    {account:'alice',event_type:'promoted',rank_name:'Kingpin',event_timestamp:250},
    {account:'someoneelse',event_type:'promoted',rank_name:'Kingpin',event_timestamp:190}
   ];
-  const db={execute:async(sql,args)=>{
+  const db={execute:async(sql,args)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];
    if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
    const types=[...sql.matchAll(/'(promoted|demoted)'/g)].map(match=>match[1]);
    return [events.filter(event=>event.account===args[0].toLowerCase() && event.event_timestamp<=args[1] && types.includes(event.event_type))
@@ -56,7 +56,7 @@ for (const latestType of ['demoted','promoted']) {
 
 test('roster history without a rank change still returns the link so Discord rank can be reported',async()=>{
  const statements=[];
- const db={execute:async(sql,args)=>{
+ const db={execute:async(sql,args)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];
   statements.push(sql);
   if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
   if(sql.includes("event_type IN ('promoted', 'demoted')"))return [[]];
@@ -73,7 +73,7 @@ test('roster history without a rank change still returns the link so Discord ran
 
 test('the roster-side rank is reported when the event history has no rank',async()=>{
  const statements=[];
- const db={execute:async(sql,args)=>{
+ const db={execute:async(sql,args)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];
   statements.push([sql,args]);
   if(sql.includes('guildsync_roster_rank_history'))return [[{rank_name:'Associate'}]];
   if(!sql.includes('guildsync_roster_events'))return [[{discord_user_id:'123'}]];
@@ -96,7 +96,7 @@ test('a blank or Unknown rank survives as no rank rather than an unusable label'
 
 test('a single first-ever join is a new member, not a returning one',async()=>{
  const statements=[];
- const db={execute:async(sql,args)=>{
+ const db={execute:async(sql,args)=>{if(sql.includes('guildsync_eso_account_aliases'))return [[]];
   statements.push([sql,args]);
   if(!sql.includes('guildsync_roster_events'))throw Error('a new member must not trigger link or roster-rank lookups');
   return sql.includes("event_type IN ('promoted', 'demoted')")?[[]]

@@ -18,11 +18,11 @@ test('Sheets receives only new inserts after commit and preserves uploader attri
       async beginTransaction() {}, async rollback() {}, release() {},
       async commit() { if (scenario === 'commit-failure') throw new Error('commit failed'); committed = true; },
       async execute(sql, params) {
-        if (sql.includes('INSERT IGNORE')) assert.equal(params[7], 'GuildSyncBanking (EvaineFaye)');
+        if (sql.includes('INSERT IGNORE')) assert.equal(params[8], 'GuildSyncBanking (EvaineFaye)');
         return [{ affectedRows: sql.includes('INSERT IGNORE') ? (scenario === 'duplicate' || params[0] === 2 ? 0 : 1) : 1 }];
       }
     };
-    const context = vm.createContext({
+    const context = vm.createContext({afterEsoIdentityUnlock:async(_db,fn)=>fn(),getEsoIdentitySourceDB:db=>db,resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db),
       console, bankingSource, validateEsoGuildImport,
       enqueueSheetsExports:async()=>{assert.equal(committed,false);},
       createSheetsExportStore:()=>({completed:async()=>{}}), normalizeDepositMailTicketType: value => value,

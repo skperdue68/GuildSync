@@ -16,7 +16,7 @@ test('receipt acknowledgements are locked, confirm retries, and never rewrite an
    if(sql.includes("AND mail_status IN"))assert.match(sql,/FOR UPDATE$/);
    return [[row].filter(r=>r.checked_out_by===args.at(-1))];
  }};
- const ctx=vm.createContext({safeRollback:async()=>{},normalizeDepositMailRow:r=>r});
+ const ctx=vm.createContext({afterEsoIdentityUnlock:async(_db,fn)=>fn(),getEsoIdentitySourceDB:db=>db,resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db),safeRollback:async()=>{},normalizeDepositMailRow:r=>r});
  vm.runInContext(source.slice(a,b).replace('export async','async'),ctx);
  const db={getConnection:async()=>connection};
  const request={checked_out_by:'one',mail_request_ids:['deposit_1','deposit_1']};
@@ -37,7 +37,7 @@ test('reimported banking event does not reset mail state or enqueue another shee
      saved.set(args[0],{status:'unsent'});return [{affectedRows:1}];
    }return [{}];
  }};
- const ctx=vm.createContext({validateEsoGuildImport(){},bankingSource:()=> 'test',normalizeDepositMailTicketType:v=>v,
+ const ctx=vm.createContext({afterEsoIdentityUnlock:async(_db,fn)=>fn(),getEsoIdentitySourceDB:db=>db,resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db),validateEsoGuildImport(){},bankingSource:()=> 'test',normalizeDepositMailTicketType:v=>v,
    googleSheetsBankingConfig:()=>({enabled:false}),enqueueSheetsExports:async(_db,entries)=>queued.push(...entries),
    syncBankingEntriesToGoogleSheets:async()=>{synced++;},safeRollback:async()=>{}});
  vm.runInContext(source.slice(a,b).replace('export async','async'),ctx);

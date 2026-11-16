@@ -1,3 +1,4 @@
+import {resolveEsoAccountName, withEsoIdentityLock} from './eso-account-identity.js';
 const aliases=[['gangster','gangsters'],['associate','associates'],['soldier','soldiers'],['capo','capos'],
   ['caporegime','caporegimes','caporegieme','caporegiemes'],['consigliere','consiglieri','consiglieres'],['kingpin','kingpins']];
 const normalize=value=>String(value||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -61,7 +62,7 @@ export function createRosterNoteAccess({db,loginDB,getRankRefs=()=>'',effectiveR
     async read(socket,account) {
       const access=await context(socket);
       const [notes]=await db.execute(`SELECT note_id,account_name,officer_name,note_text,note_timestamp,minimum_role_id
-        FROM guildsync_roster_member_notes WHERE LOWER(account_name)=LOWER(?) ORDER BY CAST(note_timestamp AS UNSIGNED),note_id`,[String(account||'').trim()]);
+        FROM guildsync_roster_member_notes WHERE LOWER(account_name)=LOWER(?) ORDER BY CAST(note_timestamp AS UNSIGNED),note_id`,[String(await resolveEsoAccountName(db, account)||'').trim()]);
       return notes.filter(note=>canReadRosterNote(note,access)).map(note=>({note_id:note.note_id,account_name:note.account_name,
         officer:note.officer_name,note:note.note_text,timestamp:Number(note.note_timestamp)}));
     },
@@ -78,15 +79,17 @@ export function createRosterNoteAccess({db,loginDB,getRankRefs=()=>'',effectiveR
     },
     async add(socket,{accountName,note}) {
       const access=await context(socket,true);
+      return withEsoIdentityLock(db, async connection => {
       if(access.rank<0)throw Error('A recognized Discord guild rank is required to add a note.');
-      const account=String(accountName||'').trim(),text=String(note||'').trim();
+      const account=String(await resolveEsoAccountName(connection, accountName)||'').trim(),text=String(note||'').trim();
       if(!account || account.length>64 || !text)throw Error('An ESO account and note text are required.');
       const officer=String(socket.guildSyncUser.display_name || socket.guildSyncUser.username || access.userId);
       const timestamp=Math.floor(Date.now()/1000);
-      const [result]=await db.execute(`INSERT INTO guildsync_roster_member_notes
+      const [result]=await connection.execute(`INSERT INTO guildsync_roster_member_notes
         (account_name,officer_name,note_text,note_timestamp,author_discord_id,minimum_role_id,minimum_role_name)
         VALUES (?,?,?,?,?,?,?)`,[account,officer,text,timestamp,access.userId,String(access.rankRole.role_id),access.rankRole.role_name]);
       return {note_id:result.insertId,account_name:account,officer,note:text,timestamp};
+      });
     }
   };
 }

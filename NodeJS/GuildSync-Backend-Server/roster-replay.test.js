@@ -17,7 +17,7 @@ function harness({snapshot=0,members=[],events=[]}={}) {
     if(sql.startsWith('INSERT INTO guildsync_settings')){if(args[0]==='lastGuildList')watermark=Number(args[1]);return [{affectedRows:1}];}
     if(sql.startsWith('INSERT IGNORE INTO guildsync_roster_events')){
       if(history.has(args[0]))return [{affectedRows:0}];
-      history.set(args[0],{id:args[0],name:args[1],type:args[2],time:Number(args[4])});return [{affectedRows:1}];
+      history.set(args[0],{id:args[0],name:args[1],type:args.length>=7?args[3]:args[2],time:Number(args.length>=7?args[5]:args[4])});return [{affectedRows:1}];
     }
     if(sql.startsWith('UPDATE guildsync_roster_members SET in_roster = 0')){for(const row of roster.values())row.in_roster=0;return [{}];}
     if(sql.startsWith('INSERT INTO guildsync_roster_members')){roster.set(args[0],{account_name:args[0],rank:args[1],in_roster:1});return [{affectedRows:1}];}
@@ -32,7 +32,7 @@ function harness({snapshot=0,members=[],events=[]}={}) {
   const connection={execute,beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release(){}};
   const source=fs.readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
   const start=source.indexOf('export async function processRosterData('),end=source.indexOf('function normalizeGuildListMembers(',start);
-  const ctx=vm.createContext({validateEsoGuildImport(){},normalizeRosterEvents:v=>Array.isArray(v)?v:Object.values(v||{}),
+  const ctx=vm.createContext({resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db),validateEsoGuildImport(){},normalizeRosterEvents:v=>Array.isArray(v)?v:Object.values(v||{}),
     normalizeRosterTimestamp:v=>Number(v)||0,normalizeRosterAccountName:v=>String(v||''),normalizeRosterRank:v=>String(v||''),normalizeRosterEventType:v=>v,
     normalizeGuildListMembers:v=>Array.isArray(v)?v:Object.values(v||{}),createAutomaticRosterEventId:()=>`auto-${++id}`,
     safeRollback:async()=>{},runMemberAutoLinking:async()=>{},getRosterDataJSON:async()=>[...roster.values()]

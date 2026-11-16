@@ -210,3 +210,8 @@ The bot needs Read Message History in that channel. Cleanup problems are reporte
 ### Open a member's history
 
 Select the small history icon on a Guild Roster row (between Notes and Linked) or a Discord Member Data row (between Roles and Linked). The existing history window opens with that member selected and their name filled in. You can still search for someone else inside the window. These shortcuts are available in the web and desktop clients.
+
+
+## ESO account-name changes
+
+From a member’s roster history, Admins and Users can choose **Change ESO account name**, preview affected records, then confirm. Viewers cannot rename. Previous names remain searchable, existing data stays connected, and history records the old name, new name, operator, and time. Existing destination accounts require review and are not merged automatically. See [ESO account-name changes](GuildSync-ESO-Account-Renames.md) for deployment, safeguards, and database tables.

@@ -1,3 +1,4 @@
+import {withIdentityTestDB} from './identity-test-db.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -36,7 +37,7 @@ function database(initial) {
       throw new Error(`Unexpected SQL: ${sql}`);
     }
   };
-  return db;
+  return withIdentityTestDB(db);
 }
 const tiers = Object.fromEntries(Object.entries(DEFAULT_BONUS_TIERS).map(([type, value]) => [type, parseBonusTiers(value)]));
 

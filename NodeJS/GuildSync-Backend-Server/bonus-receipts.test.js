@@ -1,3 +1,4 @@
+import {withIdentityTestDB} from './identity-test-db.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseBonusTiers } from './raffle-bonus.js';
@@ -25,6 +26,7 @@ async function receipt({ type = 'biweekly', enabled = true, time = '2026-09-14T1
    throw Error(sql);
   }
  };
+ withIdentityTestDB(db);
  try { return (await checkoutDepositMail(db, { checked_out_by: 'Tester' })).records[0]; }
  finally { if (oldTemplate === undefined) delete process.env.GUILDSYNC_DEPOSIT_MAIL_BODY_TEMPLATE; else process.env.GUILDSYNC_DEPOSIT_MAIL_BODY_TEMPLATE = oldTemplate; }
 }

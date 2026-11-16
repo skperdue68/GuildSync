@@ -1,3 +1,4 @@
+import {withIdentityTestDB} from './identity-test-db.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {getApplicationHistory, registerApplicationHistorySocket} from './application-history.js';
@@ -5,7 +6,7 @@ import {canPerformGuildSyncEvent} from './role-permissions.js';
 
 test('history selects the exact account, not similarly named applicants, with optional @', async () => {
   const calls=[];
-  const db={execute:async (...args)=>{calls.push(args);return [[{applicant_account:'@Alice',application_text:'Welcome'}]];}};
+  const db=withIdentityTestDB({execute:async (...args)=>{calls.push(args);return [[{applicant_account:'@Alice',application_text:'Welcome'}]];}});
   assert.equal((await getApplicationHistory(db,' Alice '))[0].application_text,'Welcome');
   assert.deepEqual(calls[0][1],['Alice']);
   assert.match(calls[0][0],/LOWER\(TRIM\(LEADING '@' FROM applicant_account\)\) = LOWER\(\?\)/);
@@ -20,7 +21,7 @@ test('history socket rechecks approval; viewers may read, bot and revoked accoun
   const handlers={};let queries=0,allowed=1;
   const socket={guildSyncAuthenticated:true,guildSyncUser:{discord_user_id:'123'},on:(e,h)=>handlers[e]=h};
   registerApplicationHistorySocket(socket,{
-    db:{execute:async()=>{queries++;return [[]];}},
+    db:withIdentityTestDB({execute:async()=>{queries++;return [[]];}}),
     loginDB:{execute:async()=>[[{allowed,role:'viewer'}]]}
   });
   const invoke=async payload=>{let result;await handlers['guildsync:request-application-history'](payload,r=>result=r);return result;};
@@ -54,7 +55,7 @@ test('broadcast ACK identifies one application rather than all applications for 
   const {default:vm}=await import('node:vm');
   const actions=readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
   const start=actions.indexOf('export async function markGuildSyncApplicationRecordBroadcasted('),end=actions.indexOf('export async function getGuildSyncApplicationByApplicantAccount(',start);
-  const context=vm.createContext({});
+  const context=vm.createContext({resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db)});
   vm.runInContext(actions.slice(start,end).replace('export async','async'),context);
   const {markGuildSyncApplicationRecordBroadcasted}=context;
   let query,params;
@@ -68,11 +69,11 @@ test('import keeps separate application timestamps for repeat joins and same-sec
   const {default:vm}=await import('node:vm');
   const source=readFileSync(new URL('./guildsync-database-actions.js',import.meta.url),'utf8');
   const start=source.indexOf('function normalizeApplicationRecord('),end=source.indexOf('export async function getGuildSyncApplicationsByApplicantSearch(',start);
-  const context=vm.createContext({validateEsoGuildImport(){}});
+  const context=vm.createContext({resolveEsoAccountName:async(_db,name)=>name,withEsoIdentityLock:async(db,fn)=>fn(db),validateEsoGuildImport(){}});
   vm.runInContext(source.slice(start,end).replace('export async','async'),context);
   const stored=new Map();
   await context.recordGuildSyncApplications({execute:async(sql,args)=>{
-    stored.set(`${args[0]}:${args[2]}`,args[1]);return [{}];
+    stored.set(`${args[0]}:${args[3]}`,args[2]);return [{}];
   }},[
     {applicantAccount:'@Alice',capturedAt:1000,applicationText:'First join'},
     {applicantAccount:'@Alice',capturedAt:2000,applicationText:'Second join'},

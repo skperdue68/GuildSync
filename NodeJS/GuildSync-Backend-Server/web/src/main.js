@@ -1,3 +1,5 @@
+import './eso-account-rename.css';
+import {createEsoAccountRename} from './eso-account-rename.js';
 import {matchApplicationsToJoins,renderJoinApplication} from './application-history.js';
 import './application-history.css';
 import {
@@ -733,6 +735,7 @@ function closeTopOpenModal() {
   }
   if (rosterHistoryDialogOpen) {
     rosterHistoryDialogOpen = false;
+    esoAccountRename.reset();
     renderGuildSyncTabLayout();
     return true;
   }
@@ -1391,7 +1394,7 @@ function renderRosterHistoryRank(rankName) {
 }
 
 function getFilteredRosterMembers() {
-  const searchText = rosterSearchText.trim().toLowerCase();
+  const searchText = rosterSearchText.trim().replace(/^@/,'').toLowerCase();
 
   const filteredMembers = rosterMembers.filter((member) => {
     const rankName = String(member.rank || '').trim();
@@ -1414,6 +1417,7 @@ function getFilteredRosterMembers() {
     const linkSummary = getRosterMemberLinkTooltip(member.account_name || '');
     const haystack = [
       member.account_name,
+      ...(member.aliases||[]),
       rankName,
       joinedDate,
       joinedDateTime,
@@ -1752,6 +1756,16 @@ function formatDiscordHistoryEventType(value) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const esoAccountRename = createEsoAccountRename({
+  context: () => ({accountName:rosterHistorySelectedAccount, allowed:rosterHistoryDialogOpen && canEditGuildSyncData(), key:`${sessionGeneration}:${rosterHistorySelectedAccount}`}),
+  request: (event, payload) => emitSocketWithAck(event, payload, 30000),
+  render: () => renderGuildSyncTabLayout(),
+  renamed: async accountName => {
+    await loadRosterStreamHistory(accountName);
+    await Promise.allSettled([refreshRosterDataFromBackend(), refreshMemberLinks(), refreshBankingDataFromBackend()]);
+  }
+});
+
 function renderRosterHistoryDialog() {
   return `
     <div class="roster-history-overlay" role="dialog" aria-modal="true" aria-labelledby="rosterHistoryTitle">
@@ -1777,6 +1791,7 @@ function renderRosterHistoryDialog() {
           </div>
           <div class="roster-history-events">
             <div class="roster-history-section-title">Guild Roster History${rosterHistorySelectedAccount ? `: ${escapeHtml(rosterHistorySelectedAccount)}` : ''}</div>
+            ${esoAccountRename.html()}
             ${renderRosterHistoryEvents()}
           </div>
         </div>
@@ -1836,9 +1851,9 @@ function renderRosterHistoryEvents() {
           ${rosterHistoryEvents.map((event, index) => `
             <tr>
               <td class="roster-history-when-cell">${escapeHtml(formatRosterHistoryTimestamp(event.timestamp))}</td>
-              <td>${escapeHtml(event.event_type || '')}</td>
+              <td>${escapeHtml(event.event_type || '')}${event.event_type === 'account renamed' && event.details ? `<small class="roster-history-rename-details">${escapeHtml(event.details)}</small>` : ''}${event.account_name_original && String(event.account_name_original).trim().replace(/^@/, '').toLowerCase() !== String(rosterHistorySelectedAccount).trim().replace(/^@/, '').toLowerCase() ? `<small class="roster-history-recorded-as">Recorded as ${escapeHtml(event.account_name_original)}</small>` : ''}</td>
               <td>${renderRosterHistoryRank(event.rank)}</td>
-              <td>${escapeHtml(event.officer || '')}</td>
+              <td>${escapeHtml(event.officer || '')}${event.officer_original && event.officer_original !== event.officer ? `<small class="roster-history-recorded-as">Recorded as ${escapeHtml(event.officer_original)}</small>` : ''}</td>
             </tr>
             ${event.event_type === 'joined' ? `<tr class="join-application-row"><td colspan="4">${renderJoinApplication(applicationMatches.get(index), rosterHistoryApplicationsLoaded)}</td></tr>` : ''}
           `).join('')}
@@ -5112,10 +5127,12 @@ function handleRosterSearchKeydown(event) {
 }
 
 function wireRosterHistoryDialog() {
+  esoAccountRename.wire(document);
   const closeButton = document.querySelector('#closeRosterHistoryButton');
   if (closeButton) {
     closeButton.addEventListener('click', () => {
       rosterHistoryDialogOpen = false;
+    esoAccountRename.reset();
       renderGuildSyncTabLayout();
     });
   }
@@ -5131,6 +5148,7 @@ function wireRosterHistoryDialog() {
         rosterHistoryError = '';
         rosterHistoryMatches = [];
         rosterHistorySelectedAccount = '';
+  esoAccountRename.reset();
         rosterHistoryApplications = [];
         rosterHistoryApplicationsLoaded = false;
         rosterHistoryEvents = [];
@@ -5422,6 +5440,7 @@ async function searchRosterRankHistory(options = {}) {
     rosterHistoryMatches = [];
     rosterHistoryActiveMatchIndex = -1;
     rosterHistorySelectedAccount = '';
+  esoAccountRename.reset();
     rosterHistoryApplications = [];
     rosterHistoryApplicationsLoaded = false;
     rosterHistoryEvents = [];
@@ -5438,6 +5457,7 @@ async function searchRosterRankHistory(options = {}) {
   rosterHistoryMatches = [];
   rosterHistoryActiveMatchIndex = -1;
   rosterHistorySelectedAccount = '';
+  esoAccountRename.reset();
   rosterHistoryApplications = [];
   rosterHistoryApplicationsLoaded = false;
   rosterHistoryEvents = [];
@@ -5478,6 +5498,7 @@ async function loadRosterStreamHistory(accountName, options = {}) {
     return;
   }
 
+  esoAccountRename.reset();
   const generation = ++rosterHistoryLoadGeneration;
   rosterHistorySelectedAccount = cleanAccountName;
   rosterHistoryApplications = [];
@@ -5536,7 +5557,10 @@ function normalizeRosterHistoryEvents(events) {
         event_type: String(item.event_type || item.eventType || '').trim(),
         rank: String(item.rank || item.rankName || '').trim(),
         timestamp: item.timestamp ?? item.timestampS ?? '',
-        officer: String(item.officer || '').trim()
+        officer: String(item.officer || '').trim(),
+        officer_original: String(item.officer_original || '').trim(),
+        details: String(item.details || '').trim(),
+        account_name_original: String(item.account_name_original || '').trim()
       }))
     : [];
 }
@@ -5549,6 +5573,7 @@ function normalizeRosterMembers(members) {
         account_name: String(member.account_name || member.accountName || '').trim(),
         rank: String(member.rank || member.rankName || '').trim(),
         joined: member.joined ?? '',
+        aliases: Array.isArray(member.aliases)?member.aliases.map(String):[],
         note_count: Number(member.note_count ?? member.noteCount ?? 0) || 0
       }))
       .sort((left, right) => left.account_name.localeCompare(right.account_name))
@@ -9151,6 +9176,7 @@ function applyUserSwitchProfile(user) {
   rosterSortDirection = '';
   rosterSearchActiveIndex = -1;
   rosterHistoryDialogOpen = false;
+  esoAccountRename.reset();
   rosterHistorySearchText = '';
   rosterHistoryMatches = [];
   rosterHistorySelectedAccount = '';
@@ -9521,8 +9547,10 @@ function disconnectSocket(updateDot = true) {
   rosterHistoryApplications = [];
   rosterHistoryApplicationsLoaded = false;
   rosterHistorySelectedAccount = '';
+  esoAccountRename.reset();
   rosterHistoryEvents = [];
   rosterHistoryDialogOpen = false;
+  esoAccountRename.reset();
   rosterNotesLoadGeneration++;
   rosterNotesDialogNotes = [];
   rosterNotesDialogOpen = false;

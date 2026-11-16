@@ -34,6 +34,10 @@ export function renderJoinApplication(record,loaded=true) {
   const text=String(record?.application_text??'').trim();
   if(!text)return '<div class="join-application-text roster-history-muted">No application text recorded near this join.</div>';
   const captured=timestamp(record.application_timestamp),date=new Date(captured*1000);
+  const original=String(record.applicant_account_original||'').trim();
+  const recordedAs=original && original.replace(/^@/,'').toLowerCase()!==String(record.applicant_account||'').replace(/^@/,'').toLowerCase()?` · Recorded as ${escape(original)}`:'';
+  const originalOfficer=String(record.officer_processing_original||'').trim();
+  const recordedOfficer=originalOfficer && originalOfficer!==record.officer_processing?` · Officer recorded as ${escape(originalOfficer)}`:'';
   const label=Number.isNaN(date.getTime())?'Date not recorded':date.toLocaleString();
-  return `<div class="join-application-text"><strong>Application:</strong> ${escape(text)}<small>Application recorded: ${escape(label)} (nearest recorded application within 7 days of joining)</small></div>`;
+  return `<div class="join-application-text"><strong>Application:</strong> ${escape(text)}<small>Application recorded: ${escape(label)} (nearest recorded application within 7 days of joining)${recordedAs}${recordedOfficer}</small></div>`;
 }
