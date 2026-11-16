@@ -3,7 +3,7 @@
 local GSA = {}
 
 GSA.name = "GuildSyncApplications"
-GSA.version = "1.5.2"
+GSA.version = "1.5.3"
 
 local WELCOME_GUILD_NAME = "Alphabet Mafia"
 
@@ -511,10 +511,26 @@ function GSA:NormalizeWelcomeSettingsList(items, kind)
 end
 
 function GSA:ClampWelcomeMessage(value)
-  value = SafeText(value)
+  value = SafeText(value):gsub("\r\n", "\n"):gsub("\r", "\n")
 
-  if string.len(value) > WELCOME_MESSAGE_MAX_LENGTH then
-    value = string.sub(value, 1, WELCOME_MESSAGE_MAX_LENGTH)
+  if zo_utf8strlen and zo_utf8sub then
+    if zo_utf8strlen(value) > WELCOME_MESSAGE_MAX_LENGTH then
+      return zo_utf8sub(value, 1, WELCOME_MESSAGE_MAX_LENGTH)
+    end
+    return value
+  end
+
+  -- Lua 5.1 has no UTF-8 library. Count leading bytes so continuation bytes
+  -- stay with their codepoint, including when the final character is multibyte.
+  local characters = 0
+  for byteIndex = 1, #value do
+    local byte = string.byte(value, byteIndex)
+    if byte < 128 or byte >= 192 then
+      characters = characters + 1
+      if characters > WELCOME_MESSAGE_MAX_LENGTH then
+        return string.sub(value, 1, byteIndex - 1)
+      end
+    end
   end
 
   return value

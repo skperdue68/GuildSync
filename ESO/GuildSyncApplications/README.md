@@ -1,6 +1,11 @@
-# GuildSyncApplications 1.4.5
+# GuildSyncApplications 1.5.3
 
 Open `/gsa settings` in ESO to edit, enable, disable, or delete welcome templates.
+
+Welcome chat is limited to 335 UTF-8 characters, including one character per
+newline. CRLF and CR line endings normalize to LF. Accented characters and emoji
+remain whole at the boundary. This matches the updated web editor's character
+counting; earlier byte-based clamps could truncate non-ASCII messages.
 
 The **Capture application data** toggle controls saving new accepted and rejected
 application records. It defaults to enabled, including for existing installations
@@ -39,4 +44,5 @@ No `.env`, Discord bot, or Google Apps Script changes are needed.
 
 Developer check: from the repository root, run
 `lua tools/applications-welcome-defaults.test.lua` and
-`lua tools/applications-capture.test.lua` (Lua 5.1 or newer).
+`lua tools/applications-capture.test.lua`, and
+`lua tools/applications-character-limit.test.lua` (Lua 5.1 or newer).
