@@ -15,6 +15,7 @@
 # SAVED_VARS_DIR=~/Documents/Elder Scrolls Online/live/SavedVariables
 SAVED_VARS_DIR=
 
-# Optional: force all deposit mails to this ESO account while testing.
-# Leave blank for normal use.
-GUILDSYNC_DEPOSIT_MAIL_FORCE_RECIPIENT=
+# Obsolete in the desktop client. To override receipt recipients for testing,
+# set GUILDSYNC_DEPOSIT_MAIL_FORCE_RECIPIENT in
+# NodeJS/GuildSync-Backend-Server/.env.
+# GUILDSYNC_DEPOSIT_MAIL_FORCE_RECIPIENT=
